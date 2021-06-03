@@ -65,7 +65,7 @@ export class Animator extends Component {
    * @param layerIndex - The layer index(default 0)
    * @param normalizedTimeOffset - The time offset between 0 and 1(default 0)
    */
-  play(stateName: string, layerIndex: number = 0, normalizedTimeOffset: number = 0): AnimatorState {
+  play(stateName: string, layerIndex: number = 0, normalizedTimeOffset: number = 0): void {
     const { animatorController } = this;
     if (!animatorController) {
       return;
@@ -79,7 +79,6 @@ export class Animator extends Component {
     playingStateData.playType = PlayType.NotStart;
     this._setDefaultValueAndTarget(playingStateData);
     this.playing = true;
-    return playState;
   }
 
   /**
