@@ -504,10 +504,10 @@ export class Animator extends Component {
     } else {
       playingStateData.playType = PlayType.IsPlaying;
       const clip = playingStateData.state.clip;
-      const count = clip._curves.length;
+      const curves = clip._curves;
       const frameTime = playingStateData.state._getTheRealFrameTime(playingStateData.frameTime);
-      for (let i = count - 1; i >= 0; i--) {
-        const { curve, type, property } = clip._curves[i];
+      for (let i = curves.length - 1; i >= 0; i--) {
+        const { type, property, curve } = curves[i];
         const value = curve.evaluate(frameTime);
         const { target, defaultValue } = playingStateData.curveDatas[i];
         if (isFirstLayer) {
