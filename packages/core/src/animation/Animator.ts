@@ -202,6 +202,7 @@ export class Animator extends Component {
             curveData.defaultValue = targetEntity.transform.scale;
             break;
         }
+        stateData.curveDatas[i] = curveData;
       }
     }
   }
