@@ -15,6 +15,7 @@ import { ignoreClone } from "../clone/CloneManager";
 import { AnimationProperty } from "./enums/AnimationProperty";
 import { AnimatorLayerData } from "./AnimatorLayerData";
 import { AnimatorStateData } from "./AnimatorStateData";
+import { CurveData } from "./CurveData";
 
 /**
  * The controller of the animation system.
@@ -188,22 +189,19 @@ export class Animator extends Component {
         const curve = curves[i];
         const { relativePath, property } = curve;
         const targetEntity = this.entity.findByPath(relativePath);
-        let defaultValue: InterpolableValue;
+        const curveData = new CurveData();
+        curveData.target = targetEntity;
         switch (property) {
           case AnimationProperty.Position:
-            defaultValue = targetEntity.position;
+            curveData.defaultValue = targetEntity.transform.position;
             break;
           case AnimationProperty.Rotation:
-            defaultValue = targetEntity.rotation;
+            curveData.defaultValue = targetEntity.transform.rotation;
             break;
           case AnimationProperty.Scale:
-            defaultValue = targetEntity.scale;
+            curveData.defaultValue = targetEntity.transform.scale;
             break;
         }
-        stateData.curveDatas[i] = {
-          target: targetEntity,
-          defaultValue
-        };
       }
     }
   }
