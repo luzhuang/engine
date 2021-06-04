@@ -22,6 +22,7 @@ import { AnimatorStateData } from "./AnimatorStateData";
 export class Animator extends Component {
   /** The playback speed of the Animator, 1.0 is normal playback speed. */
   speed: number = 1.0;
+  /** All layers from the AnimatorController which belongs this Animator. */
   animatorController: AnimatorController;
 
   @ignoreClone
@@ -43,10 +44,11 @@ export class Animator extends Component {
   @ignoreClone
   private _animatorLayersData: AnimatorLayerData[] = [];
 
-  playing: boolean;
+  /** @interal */
+  _playing: boolean;
 
   /**
-   * Get all layers from the AnimatorController which belongs this Animator .
+   * All layers from the AnimatorController which belongs this Animator.
    */
   get layers(): Readonly<AnimatorControllerLayer[]> {
     return this.animatorController?.layers || [];
@@ -78,7 +80,7 @@ export class Animator extends Component {
     playingStateData.frameTime = playState.clip.length * normalizedTimeOffset;
     playingStateData.playType = PlayType.NotStart;
     this._setDefaultValueAndTarget(playingStateData);
-    this.playing = true;
+    this._playing = true;
     return playState;
   }
 
@@ -125,7 +127,7 @@ export class Animator extends Component {
    */
   update(deltaTime: number): void {
     if (this.speed === 0) return;
-    if (!this.playing) return;
+    if (!this._playing) return;
     deltaTime *= this.speed;
     const { animatorController } = this;
     if (!animatorController) return;
@@ -156,17 +158,6 @@ export class Animator extends Component {
         this._updatePlayingState(i, isFirstLayer, deltaTime);
       }
     }
-  }
-
-  /**
-   * Return the layer by name.
-   * @param name - The layer name
-   */
-  getLayerByName(name: string): AnimatorControllerLayer {
-    if (this.animatorController) {
-      return this.animatorController.findLayerByName(name);
-    }
-    return null;
   }
 
   /**
