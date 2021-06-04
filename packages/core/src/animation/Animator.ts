@@ -22,7 +22,7 @@ import { AnimatorStateData } from "./AnimatorStateData";
 export class Animator extends Component {
   /** The playback speed of the Animator, 1.0 is normal playback speed. */
   speed: number = 1.0;
-  /** All layers from the AnimatorController which belongs this Animator. */
+  /** AnimatorController that controls the Animator. */
   animatorController: AnimatorController;
 
   @ignoreClone
