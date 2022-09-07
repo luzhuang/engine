@@ -271,7 +271,7 @@ export class TextRenderer extends Renderer implements ICustomClone {
     const isWorldBoundsDirty = this._isContainDirtyFlag(DirtyFlag.WorldBounds);
     if (isFontDirty || isLocalPositionBoundsDirty || isWorldBoundsDirty) {
       isFontDirty && this._resetCharFont();
-      isLocalPositionBoundsDirty && this._updateLocalData();
+      (isFontDirty || isLocalPositionBoundsDirty) && this._updateLocalData();
       isWorldBoundsDirty && this._updateBounds(this._bounds);
       this._setDirtyFlagFalse(DirtyFlag.Font | DirtyFlag.LocalPositionBounds | DirtyFlag.WorldBounds);
     }
@@ -287,6 +287,12 @@ export class TextRenderer extends Renderer implements ICustomClone {
     };
     this.font = Font.createFromOS(engine);
     this.setMaterial(engine._spriteDefaultMaterial);
+    if (!engine.supportTintColor) {
+      //@ts-ignore
+      this._color._onValueChanged = () => {
+        this._setDirtyFlagTrue(DirtyFlag.Font);
+      };
+    }
   }
 
   /**
@@ -335,9 +341,9 @@ export class TextRenderer extends Renderer implements ICustomClone {
 
     for (let i = 0; i < charCount; ++i) {
       const charRenderData = charRenderDatas[i];
-      const spriteElement = spriteElementPool.getFromPool();
-      spriteElement.setValue(this, charRenderData.renderData, material, charRenderData.texture);
-      charElements[i] = spriteElement;
+      const spriteElement = this._engine._spriteElementPool.getFromPool();
+      spriteElement.setValue(this, charRenderData.renderData, this.getMaterial(), charRenderData.texture, i);
+      camera._renderPipeline.pushPrimitive(spriteElement);
     }
     camera._renderPipeline.pushPrimitive(textElement);
   }
@@ -424,7 +430,12 @@ export class TextRenderer extends Renderer implements ICustomClone {
     }
     this._charFont = Font.createFromOS(
       this.engine,
-      TextUtils.getNativeFontHash(this.font.name, this.fontSize, this.fontStyle)
+      TextUtils.getNativeFontHash(
+        this.font.name,
+        this.fontSize,
+        this.fontStyle,
+        this.engine.supportTintColor ? null : this.color
+      )
     );
     this._charFont._addRefCount(1);
   }
