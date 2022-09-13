@@ -1,7 +1,7 @@
 import { Entity } from "../Entity";
 import { Collider } from "./Collider";
 import { PhysicsManager } from "./PhysicsManager";
-
+console.log(333);
 /**
  * A static collider component that will not move.
  * @remarks Mostly used for object which always stays at the same place and never moves around.

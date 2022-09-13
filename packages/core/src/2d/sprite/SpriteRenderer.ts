@@ -40,9 +40,9 @@ export class SpriteRenderer extends Renderer implements ICustomClone {
   @ignoreClone
   private _sprite: Sprite = null;
 
-  @ignoreClone
+  // @ignoreClone
   private _width: number = undefined;
-  @ignoreClone
+  // @ignoreClone
   private _height: number = undefined;
   @assignmentClone
   private _flipX: boolean = false;

@@ -351,12 +351,26 @@ describe("Entity", () => {
       expect(child2.siblingIndex).eq(2);
       expect(child1.siblingIndex).eq(-1);
 
+<<<<<<< HEAD
       // out of range
       var siblingIndexBadFn = function () {
         child2.siblingIndex = 5;
       };
       expect(siblingIndexBadFn).to.throw();
 
+=======
+      // project large index
+      child2.siblingIndex = 5;
+      expect(child2.siblingIndex).eq(2);
+
+      // thorw error whenless than 0 index
+      var siblingIndexBadFn = function () {
+        child2.siblingIndex = -1;
+      };
+      expect(siblingIndexBadFn).to.throw();
+
+      // thorw error when set lonely entity
+>>>>>>> 281e9b81a746a87eec1ac03ff1aaae28e3c98e7b
       const entityX = new Entity(engine, "entityX");
       var lonelyBadFn = function () {
         entityX.siblingIndex = 1;
