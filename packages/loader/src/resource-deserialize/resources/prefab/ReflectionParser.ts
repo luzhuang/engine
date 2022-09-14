@@ -97,6 +97,7 @@ export class ReflectionParser {
       for (let key in item.props) {
         const value = item.props[key];
         const promise = this.parseBasicType(value, engine).then((v) => {
+          if (key === "isTrigger") return;
           return (instance[key] = v);
         });
         promises.push(promise);
@@ -115,6 +116,7 @@ export class ReflectionParser {
     engine: Engine,
     resourceManager: any = engine.resourceManager
   ) {
+    methodParams = [methodParams];
     return Promise.all(methodParams.map((param) => this.parseBasicType(param, engine, resourceManager))).then(
       (result) => {
         return instance[methodName](...result);
