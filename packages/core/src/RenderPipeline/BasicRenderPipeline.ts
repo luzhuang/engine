@@ -21,10 +21,6 @@ import { RenderContext } from "./RenderContext";
 import { RenderElement } from "./RenderElement";
 import { RenderPass } from "./RenderPass";
 import { RenderQueue } from "./RenderQueue";
-<<<<<<< HEAD
-import { ShadowManager } from "../shadow/ShadowManager";
-=======
->>>>>>> 281e9b81a746a87eec1ac03ff1aaae28e3c98e7b
 
 /**
  * Basic render pipeline.
