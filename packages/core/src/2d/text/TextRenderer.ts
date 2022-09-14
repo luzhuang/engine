@@ -330,6 +330,8 @@ export class TextRenderer extends Renderer implements ICustomClone {
     const material = this.getMaterial();
     const charRenderDatas = this._charRenderDatas;
     const charCount = charRenderDatas.length;
+    const passes = material.shader.passes;
+    const renderStates = material.renderStates;
 
     textElement.component = this;
     textElement.material = material;
@@ -343,7 +345,14 @@ export class TextRenderer extends Renderer implements ICustomClone {
       camera._renderPipeline.pushPrimitive(spriteElement);
 =======
       const spriteElement = spriteElementPool.getFromPool();
-      spriteElement.setValue(this, charRenderData.renderData, material, charRenderData.texture, i);
+      spriteElement.setValue(
+        this,
+        charRenderData.renderData,
+        material,
+        charRenderData.texture,
+        renderStates[0],
+        passes[0]
+      );
       charElements[i] = spriteElement;
 >>>>>>> 281e9b81a746a87eec1ac03ff1aaae28e3c98e7b
     }
