@@ -75,5 +75,7 @@
       "git add"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "chai-spies": "^1.0.0"
+  }
 }

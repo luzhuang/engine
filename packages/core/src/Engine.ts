@@ -102,13 +102,13 @@ export class Engine extends EventDispatcher {
   private _resourceManager: ResourceManager = new ResourceManager(this);
   private _sceneManager: SceneManager = new SceneManager(this);
   private _vSyncCount: number = 1;
-  private _targetFrameRate: number = 60;
+  private _targetFrameRate: number = 1;
   private _time: Time = new Time();
   private _isPaused: boolean = true;
   private _requestId: number;
   private _timeoutId: number;
   private _vSyncCounter: number = 1;
-  private _targetFrameInterval: number = 1000 / 60;
+  private _targetFrameInterval: number = 1000 / 1;
 
   private _animate = () => {
     if (this._vSyncCount) {

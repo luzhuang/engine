@@ -34,6 +34,7 @@ export class ComponentsManager {
   }
 
   removeRenderer(renderer: Renderer) {
+    if (renderer._rendererIndex === -1) return;
     const replaced = this._renderers.deleteByIndex(renderer._rendererIndex);
     replaced && (replaced._rendererIndex = renderer._rendererIndex);
     renderer._rendererIndex = -1;

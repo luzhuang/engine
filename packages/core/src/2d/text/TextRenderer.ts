@@ -149,6 +149,7 @@ export class TextRenderer extends Renderer implements ICustomClone {
   set fontSize(value: number) {
     if (this._fontSize !== value) {
       this._fontSize = value;
+      console.log(333, value);
       this._setDirtyFlagTrue(DirtyFlag.Font);
     }
   }

@@ -271,7 +271,6 @@ export class Animator extends Component {
     const scriptCount = scripts.length;
     const { eventHandlers } = animatorStateData;
     const { events } = state.clip;
-
     eventHandlerPool.resetPool();
     eventHandlers.length = 0;
     for (let i = 0, n = events.length; i < n; i++) {
@@ -708,6 +707,7 @@ export class Animator extends Component {
     let eventIndex = playState.currentEventIndex;
     for (let n = eventHandlers.length; eventIndex < n; eventIndex++) {
       const eventHandler = eventHandlers[eventIndex];
+      console.log(eventHandlers);
       const { time, parameter } = eventHandler.event;
 
       if (time > curClipTime) {

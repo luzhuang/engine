@@ -151,10 +151,15 @@ export class ResourceManager {
   getResourceByRef<T>(ref: { refId: string; key?: string; isClone?: boolean }): Promise<T> {
     const { refId, key, isClone } = ref;
     const obj = this._objectPool[refId];
+    // console.log(obj, key, refId, this._editorResourceConfig[refId]?.type, this._editorResourceConfig[refId]?.path);
+
+    // if (!this._editorResourceConfig[refId]?.type) debugger;
     const promise = obj
       ? Promise.resolve(obj)
       : this.load<any>({ type: this._editorResourceConfig[refId].type, url: this._editorResourceConfig[refId].path });
-    return promise.then((res) => (key ? Utils._reflectGet(res, key) : res)).then((item) => (isClone ? item.clone() : item));
+    return promise
+      .then((res) => (key ? Utils._reflectGet(res, key) : res))
+      .then((item) => (isClone ? item.clone() : item));
   }
 
   /**
