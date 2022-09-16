@@ -707,7 +707,6 @@ export class Animator extends Component {
     let eventIndex = playState.currentEventIndex;
     for (let n = eventHandlers.length; eventIndex < n; eventIndex++) {
       const eventHandler = eventHandlers[eventIndex];
-      console.log(eventHandlers);
       const { time, parameter } = eventHandler.event;
 
       if (time > curClipTime) {
