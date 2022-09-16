@@ -106,6 +106,7 @@ export abstract class Component extends EngineObject {
    * @internal
    */
   _setActive(value: boolean): void {
+    console.log(333);
     const entity = this._entity;
     if (value) {
       // Awake condition is un awake && current entity is active in hierarchy
