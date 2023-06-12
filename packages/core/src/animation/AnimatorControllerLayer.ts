@@ -1,3 +1,4 @@
+import { UpdateFlagManager } from "../UpdateFlagManager";
 import { AnimatorStateMachine } from "./AnimatorStateMachine";
 import { AnimatorLayerBlendingMode } from "./enums/AnimatorLayerBlendingMode";
 
@@ -9,9 +10,20 @@ export class AnimatorControllerLayer {
   weight: number = 1.0;
   /** The blending mode used by the layer. It is not taken into account for the first layer. */
   blendingMode: AnimatorLayerBlendingMode = AnimatorLayerBlendingMode.Override;
-  /** The state machine for the layer. */
-  stateMachine: AnimatorStateMachine;
+  /** @internal */
+  _updateFlagManager: UpdateFlagManager;
 
+  private _stateMachine: AnimatorStateMachine;
+
+  /** The state machine for the layer. */
+  get stateMachine() {
+    return this._stateMachine;
+  }
+
+  set stateMachine(stateMachine: AnimatorStateMachine) {
+    this._stateMachine = stateMachine;
+    stateMachine._updateFlagManager = this._updateFlagManager;
+  }
   /**
    * @param name - The layer's name
    */
