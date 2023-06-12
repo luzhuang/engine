@@ -61,10 +61,8 @@ export class Animator extends Component {
 
   set animatorController(animatorController: AnimatorController) {
     if (animatorController !== this._animatorController) {
-      this._reset();
-      this._controllerUpdateFlag && this._controllerUpdateFlag.destroy();
-      this._controllerUpdateFlag = animatorController && animatorController._registerChangeFlag();
       this._animatorController = animatorController;
+      this._init();
     }
   }
 
@@ -82,8 +80,8 @@ export class Animator extends Component {
    * @param normalizedTimeOffset - The time offset between 0 and 1(default 0)
    */
   play(stateName: string, layerIndex: number = -1, normalizedTimeOffset: number = 0): void {
-    if (this._controllerUpdateFlag?.flag) {
-      this._reset();
+    if (!this._controllerUpdateFlag || this._controllerUpdateFlag?.flag) {
+      this._init();
     }
 
     const stateInfo = this._getAnimatorStateInfo(stateName, layerIndex);
@@ -119,8 +117,8 @@ export class Animator extends Component {
     layerIndex: number = -1,
     normalizedTimeOffset: number = 0
   ): void {
-    if (this._controllerUpdateFlag?.flag) {
-      this._reset();
+    if (!this._controllerUpdateFlag || this._controllerUpdateFlag?.flag) {
+      this._init();
     }
 
     const { state } = this._getAnimatorStateInfo(stateName, layerIndex);
@@ -156,14 +154,13 @@ export class Animator extends Component {
     }
     if (this._controllerUpdateFlag?.flag) {
       this._checkAutoPlay();
-      return;
     }
 
     deltaTime *= this.speed;
 
     this._revertCurveOwners();
 
-    for (let i = 0, n = animatorController.layers.length; i < n; i++) {
+    for (let i = 0, n = animatorLayersData.length; i < n; i++) {
       const animatorLayerData = animatorLayersData[i];
       if (animatorLayerData.layerState === LayerState.Standby) {
         continue;
@@ -209,27 +206,27 @@ export class Animator extends Component {
   /**
    * @internal
    */
-  _reset() {
-    const { _curveOwnerPool: animationCurveOwners } = this;
-    for (let instanceId in animationCurveOwners) {
-      const propertyOwners = animationCurveOwners[instanceId];
-      for (let property in propertyOwners) {
-        const owner = propertyOwners[property];
-        owner.revertDefaultValue();
-      }
-    }
+  _init() {
+    const { animatorController } = this;
 
-    this._animatorLayersData.length = 0;
+    this._controllerUpdateFlag && this._controllerUpdateFlag.destroy();
+    this._controllerUpdateFlag = animatorController && animatorController._registerChangeFlag();
     this._needRevertCurveOwners.length = 0;
     this._curveOwnerPool = Object.create(null);
     this._needRevertOwnerPool = Object.create(null);
     this._animationEventHandlerPool.resetPool();
 
-    const { layers } = this.animatorController;
+    if (this._controllerUpdateFlag) {
+      this._controllerUpdateFlag.flag = false;
+    }
+
+    if (!animatorController) return;
+
+    const { layers } = animatorController;
     for (let i = 0, n = layers.length; i < n; i++) {
       const animatorLayerData = (this._animatorLayersData[i] ||= new AnimatorLayerData());
       const { animatorStateDataMap } = animatorLayerData;
-      const states = layers[i]?.stateMachine.states;
+      const states = layers[i].stateMachine?.states;
 
       if (!states) continue;
 
@@ -241,6 +238,25 @@ export class Animator extends Component {
         this._saveAnimatorEventHandlers(state, animatorStateData);
       }
     }
+  }
+
+  /**
+   * @internal
+   */
+  _reset(): void {
+    const { _curveOwnerPool: animationCurveOwners } = this;
+    for (let instanceId in animationCurveOwners) {
+      const propertyOwners = animationCurveOwners[instanceId];
+      for (let property in propertyOwners) {
+        const owner = propertyOwners[property];
+        owner.revertDefaultValue();
+      }
+    }
+
+    this._animatorLayersData.length = 0;
+    this._needRevertCurveOwners.length = 0;
+    this._curveOwnerPool = {};
+    this._animationEventHandlerPool.resetPool();
 
     if (this._controllerUpdateFlag) {
       this._controllerUpdateFlag.flag = false;
@@ -278,8 +294,6 @@ export class Animator extends Component {
     const { curveLayerOwner } = animatorStateData;
     const { curveOwnerPool: layerCurveOwnerPool } = animatorLayerData;
     const { _curveBindings: curves } = animatorState.clip;
-
-    this._needRevertCurveOwners.length = 0;
 
     for (let i = curves.length - 1; i >= 0; i--) {
       const curve = curves[i];
