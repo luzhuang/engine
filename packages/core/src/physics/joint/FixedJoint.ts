@@ -10,7 +10,7 @@ export class FixedJoint extends Joint {
    * @internal
    */
   override _onAwake() {
-    const collider = this._collider;
+    const collider = this._connectedColliderInfo;
     collider.collider = this.entity.getComponent(Collider);
     this._nativeJoint = PhysicsManager._nativePhysics.createFixedJoint(collider.collider._nativeCollider);
   }

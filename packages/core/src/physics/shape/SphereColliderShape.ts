@@ -1,7 +1,7 @@
 import { ColliderShape } from "./ColliderShape";
 import { ISphereColliderShape } from "@galacean/engine-design";
 import { PhysicsManager } from "../PhysicsManager";
-
+console.log("Hello, world!");
 /**
  * Physical collider shape for sphere.
  */
@@ -29,5 +29,16 @@ export class SphereColliderShape extends ColliderShape {
       this._radius,
       this._material._nativeMaterial
     );
+  }
+
+  clone(): SphereColliderShape {
+    const dest = new SphereColliderShape();
+    this.cloneTo(dest);
+    return dest;
+  }
+
+  override cloneTo(target: SphereColliderShape) {
+    super.cloneTo(target);
+    target.radius = this.radius;
   }
 }

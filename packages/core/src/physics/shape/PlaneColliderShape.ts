@@ -12,4 +12,10 @@ export class PlaneColliderShape extends ColliderShape {
       this._material._nativeMaterial
     );
   }
+
+  clone(): PlaneColliderShape {
+    const dest = new PlaneColliderShape();
+    this.cloneTo(dest);
+    return dest;
+  }
 }
