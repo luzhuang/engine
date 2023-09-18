@@ -1,7 +1,6 @@
 import { ColliderShape } from "./ColliderShape";
 import { ISphereColliderShape } from "@galacean/engine-design";
 import { PhysicsManager } from "../PhysicsManager";
-console.log("Hello, world!");
 /**
  * Physical collider shape for sphere.
  */
