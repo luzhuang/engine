@@ -1,8 +1,8 @@
-import { IBoxColliderShape } from "@oasis-engine/design";
-import { BoundingBox, Ray, Vector3 } from "oasis-engine";
-import { LiteColliderShape } from "./LiteColliderShape";
+import { BoundingBox, Ray, Vector3 } from "@galacean/engine";
+import { IBoxColliderShape } from "@galacean/engine-design";
 import { LiteHitResult } from "../LiteHitResult";
 import { LitePhysicsMaterial } from "../LitePhysicsMaterial";
+import { LiteColliderShape } from "./LiteColliderShape";
 
 /**
  * Box collider shape in Lite.
@@ -32,7 +32,7 @@ export class LiteBoxColliderShape extends LiteColliderShape implements IBoxColli
   /**
    * {@inheritDoc IColliderShape.setPosition }
    */
-  setPosition(position: Vector3): void {
+  override setPosition(position: Vector3): void {
     super.setPosition(position);
     this._setBondingBox();
   }
@@ -40,9 +40,9 @@ export class LiteBoxColliderShape extends LiteColliderShape implements IBoxColli
   /**
    * {@inheritDoc IColliderShape.setWorldScale }
    */
-  setWorldScale(scale: Vector3): void {
-    this._transform.position = this._transform.position.multiply(scale);
-    this._halfSize.multiply(scale);
+  override setWorldScale(scale: Vector3): void {
+    super.setWorldScale(scale);
+    this._setBondingBox();
   }
 
   /**
@@ -60,8 +60,16 @@ export class LiteBoxColliderShape extends LiteColliderShape implements IBoxColli
     const localRay = this._getLocalRay(ray);
 
     const boundingBox = LiteBoxColliderShape._tempBox;
-    boundingBox.min.set(-this._halfSize.x, -this._halfSize.y, -this._halfSize.z);
-    boundingBox.max.set(this._halfSize.x, this._halfSize.y, this._halfSize.z);
+    boundingBox.min.set(
+      -this._halfSize.x * this._worldScale.x,
+      -this._halfSize.y * this._worldScale.y,
+      -this._halfSize.z * this._worldScale.z
+    );
+    boundingBox.max.set(
+      this._halfSize.x * this._worldScale.x,
+      this._halfSize.y * this._worldScale.y,
+      this._halfSize.z * this._worldScale.z
+    );
     const rayDistance = localRay.intersectBox(boundingBox);
     if (rayDistance !== -1) {
       this._updateHitResult(localRay, rayDistance, hit, ray.origin);
@@ -72,10 +80,19 @@ export class LiteBoxColliderShape extends LiteColliderShape implements IBoxColli
   }
 
   private _setBondingBox(): void {
-    const { position: center } = this._transform;
+    const { position } = this._transform;
+    const scale = this._worldScale;
     const halfSize = this._halfSize;
 
-    Vector3.add(center, halfSize, this._boxMax);
-    Vector3.subtract(center, halfSize, this._boxMin);
+    this._boxMin.set(
+      -halfSize.x * scale.x + position.x,
+      -halfSize.y * scale.y + position.y,
+      -halfSize.z * scale.z + position.z
+    );
+    this._boxMax.set(
+      halfSize.x * scale.x + position.x,
+      halfSize.y * scale.y + position.y,
+      halfSize.z * scale.z + position.z
+    );
   }
 }

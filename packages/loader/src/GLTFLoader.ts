@@ -1,22 +1,30 @@
-import { AssetPromise, AssetType, Loader, LoadItem, resourceLoader, ResourceManager } from "@oasis-engine/core";
-import { GLTFParser } from "./gltf/GLTFParser";
+import { AssetPromise, AssetType, Loader, LoadItem, resourceLoader, ResourceManager } from "@galacean/engine-core";
 import { GLTFResource } from "./gltf/GLTFResource";
+import { GLTFParserContext } from "./gltf/parser";
 
-@resourceLoader(AssetType.Prefab, ["gltf", "glb"])
+@resourceLoader(AssetType.GLTF, ["gltf", "glb"])
 export class GLTFLoader extends Loader<GLTFResource> {
-  load(item: LoadItem, resourceManager: ResourceManager): AssetPromise<GLTFResource> {
+  override load(item: LoadItem, resourceManager: ResourceManager): AssetPromise<GLTFResource> {
     const url = item.url;
-    return new AssetPromise((resolve, reject) => {
-      const resource = new GLTFResource(resourceManager.engine);
-      resource.url = url;
-
-      GLTFParser.instance
-        .parse(resource)
-        .then(resolve)
-        .catch((e) => {
-          console.error(e);
-          reject(`Error loading glTF model from ${url} .`);
-        });
+    const params = <GLTFParams>item.params;
+    const glTFResource = new GLTFResource(resourceManager.engine, url);
+    const context = new GLTFParserContext(glTFResource, resourceManager, {
+      keepMeshData: false,
+      ...params
     });
+
+    return <AssetPromise<GLTFResource>>context.parse();
   }
+}
+
+/**
+ * GlTF loader params.
+ */
+export interface GLTFParams {
+  /**
+   * @beta Now only contains vertex information, need to improve.
+   * Keep raw mesh data for glTF parser, default is false.
+   */
+  keepMeshData?: boolean;
+  [key: string]: any;
 }

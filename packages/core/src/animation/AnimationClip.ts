@@ -1,19 +1,21 @@
-import { Quaternion, Vector3 } from "@oasis-engine/math";
+import { EngineObject } from "../base/EngineObject";
 import { Component } from "../Component";
 import { Entity } from "../Entity";
-import { Transform } from "../Transform";
+import { UpdateFlagManager } from "../UpdateFlagManager";
 import { AnimationClipCurveBinding } from "./AnimationClipCurveBinding";
-import { AnimationCurve } from "./AnimationCurve";
+import { AnimationCurve } from "./animationCurve/AnimationCurve";
 import { AnimationEvent } from "./AnimationEvent";
-import { AnimationProperty } from "./enums/AnimationProperty";
-import { Motion } from "./Motion";
+import { KeyframeValueType } from "./Keyframe";
 
 /**
  * Stores keyframe based animations.
  */
-export class AnimationClip extends Motion {
+export class AnimationClip extends EngineObject {
   /** @internal */
   _curveBindings: AnimationClipCurveBinding[] = [];
+
+  /** @internal */
+  _updateFlagManager: UpdateFlagManager = new UpdateFlagManager();
 
   private _length: number = 0;
   private _events: AnimationEvent[] = [];
@@ -43,7 +45,7 @@ export class AnimationClip extends Motion {
    * @param name - The AnimationClip's name
    */
   constructor(public readonly name: string) {
-    super();
+    super(null);
   }
 
   /**
@@ -61,16 +63,29 @@ export class AnimationClip extends Motion {
   addEvent(event: AnimationEvent): void;
 
   addEvent(param: AnimationEvent | string, time?: number, parameter?: Object): void {
+    let newEvent: AnimationEvent;
     if (typeof param === "string") {
       const event = new AnimationEvent();
       event.functionName = param;
       event.time = time;
       event.parameter = parameter;
-      this._events.push(event);
+      newEvent = event;
     } else {
-      this._events.push(param);
+      newEvent = param;
     }
-    this._events.sort((a, b) => a.time - b.time);
+    const events = this._events;
+    const count = events.length;
+    const eventTime = newEvent.time;
+    const maxEventTime = count ? events[count - 1].time : 0;
+    if (eventTime >= maxEventTime) {
+      events.push(newEvent);
+    } else {
+      let index = count;
+      while (--index >= 0 && eventTime < events[index].time);
+      events.splice(index + 1, 0, newEvent);
+    }
+
+    this._updateFlagManager.dispatch();
   }
 
   /**
@@ -78,41 +93,26 @@ export class AnimationClip extends Motion {
    */
   clearEvents(): void {
     this._events.length = 0;
+    this._updateFlagManager.dispatch();
   }
 
   /**
    * Add curve binding for the clip.
    * @param relativePath - Path to the game object this curve applies to. The relativePath is formatted similar to a pathname, e.g. "/root/spine/leftArm"
    * @param type- The class type of the component that is animated
-   * @param propertyName - The name to the property being animated
+   * @param propertyName - The name or path to the property being animated
    * @param curve - The animation curve
    */
   addCurveBinding<T extends Component>(
     relativePath: string,
     type: new (entity: Entity) => T,
     propertyName: string,
-    curve: AnimationCurve
+    curve: AnimationCurve<KeyframeValueType>
   ): void {
-    let property: AnimationProperty;
-    switch (propertyName) {
-      case "position":
-        property = AnimationProperty.Position;
-        break;
-      case "rotation":
-        property = AnimationProperty.Rotation;
-        break;
-      case "scale":
-        property = AnimationProperty.Scale;
-        break;
-      case "blendShapeWeights":
-        property = AnimationProperty.BlendShapeWeights;
-        break;
-      default:
-    }
     const curveBinding = new AnimationClipCurveBinding();
     curveBinding.relativePath = relativePath;
     curveBinding.type = type;
-    curveBinding.property = property;
+    curveBinding.property = propertyName;
     curveBinding.curve = curve;
     if (curve.length > this._length) {
       this._length = curve.length;
@@ -135,24 +135,19 @@ export class AnimationClip extends Motion {
    * @param time - The time to sample an animation
    */
   _sampleAnimation(entity: Entity, time: number): void {
-    const { length } = this._curveBindings;
-    for (let i = length - 1; i >= 0; i--) {
-      const curveData = this._curveBindings[i];
-      const { curve, property, relativePath, type } = curveData;
-      const val = curve.evaluate(time);
-      const target = entity.findByName(relativePath);
-      const transform = (<Entity>target).transform;
-      if (type === Transform) {
-        switch (property) {
-          case AnimationProperty.Position:
-            transform.position = val as Vector3;
-            break;
-          case AnimationProperty.Rotation:
-            transform.rotationQuaternion = val as Quaternion;
-            break;
-          case AnimationProperty.Scale:
-            transform.scale = val as Vector3;
-            break;
+    const { _curveBindings: curveBindings } = this;
+    for (let i = curveBindings.length - 1; i >= 0; i--) {
+      const curveData = curveBindings[i];
+      const targetEntity = entity.findByPath(curveData.relativePath);
+      if (targetEntity) {
+        const component = targetEntity.getComponent(curveData.type);
+        if (!component) {
+          continue;
+        }
+        const curveOwner = curveData._getTempCurveOwner(targetEntity, component);
+        if (curveOwner && curveData.curve.keys.length) {
+          const value = curveOwner.evaluateValue(curveData.curve, time, false);
+          curveOwner.applyValue(value, 1, false);
         }
       }
     }

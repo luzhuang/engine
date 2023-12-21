@@ -12,8 +12,8 @@ const mimeType = {
   jpg: "image"
 };
 
-const defaultRetryCount = 4;
-const defaultTimeout = 15000;
+const defaultRetryCount = 1;
+const defaultTimeout = Infinity;
 const defaultInterval = 500;
 
 export type RequestConfig = {
@@ -35,23 +35,12 @@ export function request<T>(url: string, config: RequestConfig = {}): AssetPromis
     config.timeout = config.timeout ?? defaultTimeout;
     config.type = config.type ?? getMimeTypeFromUrl(url);
     const realRequest = config.type === "image" ? requestImage : requestRes;
-    let lastError: Error;
     const executor = new MultiExecutor(
-      () => {
-        return realRequest<T>(url, config)
-          .onProgress(setProgress)
-          .then((res) => {
-            resolve(res);
-            executor.stop();
-          })
-          .catch((err) => (lastError = err));
-      },
+      () => realRequest<T>(url, config).onProgress(setProgress),
       retryCount,
       retryInterval
     );
-    executor.start(() => {
-      reject(lastError);
-    });
+    executor.start().onError(reject).onComplete(resolve);
   });
 }
 
@@ -66,9 +55,12 @@ function requestImage<T>(url: string, config: RequestConfig): AssetPromise<T> {
 
     img.onabort = onerror;
 
-    const timeoutId = setTimeout(() => {
-      reject(new Error(`request ${url} timeout`));
-    }, timeout);
+    let timeoutId = -1;
+    if (timeout != Infinity) {
+      timeoutId = window.setTimeout(() => {
+        reject(new Error(`request ${url} timeout`));
+      }, timeout);
+    }
 
     img.onload = ((timeoutId) => {
       return () => {
@@ -135,6 +127,9 @@ function getMimeTypeFromUrl(url: string) {
 export class MultiExecutor {
   private _timeoutId: number = -100;
   private _currentCount = 0;
+  private _onComplete: Function;
+  private _onError: Function;
+  private _error: any;
   constructor(
     private execFunc: (count?: number) => Promise<any>,
     private totalCount: number,
@@ -143,25 +138,36 @@ export class MultiExecutor {
     this.exec = this.exec.bind(this);
   }
 
-  private done: Function;
-  start(done?: Function): void {
-    this.done = done;
+  start() {
     this.exec();
+    return this;
   }
 
-  stop(): void {
-    clearTimeout(this._timeoutId);
+  onComplete(func: Function) {
+    this._onComplete = func;
+    return this;
+  }
+
+  onError(func: Function) {
+    this._onError = func;
+    return this;
+  }
+
+  cancel() {
+    window.clearTimeout(this._timeoutId);
   }
 
   private exec(): void {
     if (this._currentCount >= this.totalCount) {
-      this.done && this.done();
+      this._onError && this._onError(this._error);
       return;
     }
     this._currentCount++;
-    this.execFunc(this._currentCount).then(() => {
-      //@ts-ignore
-      this._timeoutId = setTimeout(this.exec, this.interval);
-    });
+    this.execFunc(this._currentCount)
+      .then((result) => this._onComplete && this._onComplete(result))
+      .catch((e) => {
+        this._error = e;
+        this._timeoutId = window.setTimeout(this.exec, this.interval);
+      });
   }
 }
