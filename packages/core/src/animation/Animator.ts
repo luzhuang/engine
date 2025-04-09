@@ -25,6 +25,7 @@ import { AnimatorLayerData } from "./internal/AnimatorLayerData";
 import { AnimatorStateData } from "./internal/AnimatorStateData";
 import { AnimatorStatePlayData } from "./internal/AnimatorStatePlayData";
 import { AnimationCurveOwner } from "./internal/animationCurveOwner/AnimationCurveOwner";
+import { WrapMode } from "./enums/WrapMode";
 
 /**
  * The controller of the animation system.
@@ -1400,7 +1401,7 @@ export class Animator extends Component {
     const endTime = state._getClipActualEndTime();
 
     if (isForward) {
-      if (lastClipTime + deltaTime >= endTime) {
+      if (lastClipTime + deltaTime >= endTime && playData.state.wrapMode === WrapMode.Loop) {
         this._fireSubAnimationEvents(playData, eventHandlers, lastClipTime, endTime);
         playData.currentEventIndex = 0;
         this._fireSubAnimationEvents(playData, eventHandlers, startTime, clipTime);
