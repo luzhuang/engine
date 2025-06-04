@@ -19,13 +19,11 @@ import {
   AmbientLight,
   AssetType,
   BlinnPhongMaterial,
-  Entity,
-  BaseMaterial
+  Entity
 } from "@galacean/engine";
 import { WireframeManager } from "@galacean/engine-toolkit";
 
 import { PhysXPhysics } from "@galacean/engine-physics-physx";
-import { initScreenshot, updateForE2E } from "./.mockForE2E";
 
 function addBox(rootEntity: Entity, cubeSize: number, x: number, y: number, z: number, index: number) {
   const boxEntity = rootEntity.createChild("BoxEntity");
@@ -150,7 +148,8 @@ WebGLEngine.create({ canvas: "canvas", physics: new PhysXPhysics() }).then((engi
     })
     .then((ambientLight) => {
       scene.ambientLight = ambientLight;
-      updateForE2E(engine, 95);
-      initScreenshot(engine, camera);
+      engine.run();
+      // updateForE2E(engine, 95);
+      // initScreenshot(engine, camera);
     });
 });

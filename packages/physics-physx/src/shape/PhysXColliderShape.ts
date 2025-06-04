@@ -164,6 +164,7 @@ export abstract class PhysXColliderShape implements IColliderShape {
     const transform = PhysXColliderShape.transform;
     Vector3.multiply(this._position, this._worldScale, transform.translation);
     transform.rotation = this._physXRotation;
+    console.log("transform", transform.translation, transform.rotation);
     this._pxShape.setLocalPose(transform);
   }
 
