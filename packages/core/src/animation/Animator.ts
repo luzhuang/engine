@@ -1556,14 +1556,26 @@ export class Animator extends Component {
     const { eventHandlers } = playData.stateData;
     eventHandlers.length && this._fireAnimationEvents(playData, eventHandlers, lastClipTime, deltaTime);
 
+    // Keep onEnter behavior for the first frame entering the state
     if (lastPlayState === AnimatorStatePlayState.UnStarted) {
       this._callAnimatorScriptOnEnter(state, layerIndex);
     }
-    if (lastPlayState !== AnimatorStatePlayState.Finished && playData.playState === AnimatorStatePlayState.Finished) {
-      this._callAnimatorScriptOnExit(state, layerIndex);
-    } else {
-      this._callAnimatorScriptOnUpdate(state, layerIndex);
+
+    // If the current state has finished this frame, only allow onExit once and do not call onUpdate
+    if (playData.playState === AnimatorStatePlayState.Finished) {
+      if (lastPlayState !== AnimatorStatePlayState.Finished) {
+        this._callAnimatorScriptOnExit(state, layerIndex);
+      }
+      return;
     }
+
+    // Align onUpdate with evaluation: if no time advanced in this slice, skip onUpdate
+    if (deltaTime === 0) {
+      return;
+    }
+
+    // Otherwise, regular update
+    this._callAnimatorScriptOnUpdate(state, layerIndex);
   }
 
   private _deactivateTriggeredParameters(): void {
