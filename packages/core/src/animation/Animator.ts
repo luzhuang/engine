@@ -1556,7 +1556,6 @@ export class Animator extends Component {
     const { eventHandlers } = playData.stateData;
     eventHandlers.length && this._fireAnimationEvents(playData, eventHandlers, lastClipTime, deltaTime);
 
-    // Keep onEnter behavior for the first frame entering the state
     if (lastPlayState === AnimatorStatePlayState.UnStarted) {
       this._callAnimatorScriptOnEnter(state, layerIndex);
     }
