@@ -19,16 +19,6 @@ import { ReflectionParser } from "./ReflectionParser";
 /** @Internal */
 export abstract class HierarchyParser<T extends Scene | PrefabResource, V extends ParserContext> {
   private static _componentBuffer: Component[] = [];
-  private static readonly _prefabInstanceInvalidKeys = [
-    "name",
-    "isActive",
-    "layer",
-    "position",
-    "rotation",
-    "scale",
-    "children",
-    "components"
-  ];
 
   readonly promise: Promise<T>;
 
@@ -364,14 +354,10 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
   private static _assertPrefabInstanceEntityShape(entityConfig: PrefabInstanceEntitySchema): void {
     const shape = entityConfig as unknown as Record<string, unknown>;
-    const keys = HierarchyParser._prefabInstanceInvalidKeys;
-    let invalidKeys: string[] | null = null;
-    for (let i = 0, n = keys.length; i < n; i++) {
-      if (shape[keys[i]] != null) {
-        (invalidKeys ??= []).push(keys[i]);
-      }
-    }
-    if (invalidKeys) {
+    const invalidKeys = ["name", "isActive", "layer", "position", "rotation", "scale", "children", "components"].filter(
+      (key) => shape[key] != null
+    );
+    if (invalidKeys.length > 0) {
       throw new Error(
         `Prefab instance entity cannot declare ${invalidKeys.join(
           ", "
