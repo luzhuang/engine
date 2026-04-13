@@ -168,7 +168,7 @@ export class ReflectionParser {
     return Promise.all(promises).then(() => signal);
   }
 
-  private _resolveComponent(comp: { entity: number; type: string; index: number }): any {
+  private _resolveComponent(comp: { entity: number; type: string; index: number }): Component | null {
     const entity = this._context.entityMap.get(comp.entity);
     if (!entity) return null;
     const type = Loader.getClass(comp.type);

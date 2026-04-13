@@ -31,10 +31,9 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     public readonly data: HierarchyFile,
     public readonly context: V
   ) {
-    const version = (data as Partial<HierarchyFile>).version;
-    if (version !== "2.0") {
+    if (data.version !== "2.0") {
       const resourceType = context.type === ParserType.Scene ? "scene" : "prefab";
-      throw new Error(`Unsupported ${resourceType} format version "${version ?? "missing"}". Expected "2.0".`);
+      throw new Error(`Unsupported ${resourceType} format version "${data.version}". Expected "2.0".`);
     }
 
     this._engine = this.context.engine;
@@ -95,7 +94,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       }
     }
 
-    return Promise.all(promises).then(() => {});
+    return Promise.all(promises) as any;
   }
 
   // ---------------------------------------------------------------------------
@@ -169,7 +168,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       }
     }
 
-    return Promise.all(promises).then(() => {});
+    return Promise.all(promises) as any;
   }
 
   // ---------------------------------------------------------------------------
@@ -247,7 +246,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       }
     }
 
-    return Promise.all(promises).then(() => {});
+    return Promise.all(promises) as any;
   }
 
   // ---------------------------------------------------------------------------
