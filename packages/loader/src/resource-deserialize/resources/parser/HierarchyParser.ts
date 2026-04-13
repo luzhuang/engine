@@ -82,7 +82,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       const entityConfig = entities[i];
 
       if (HierarchyParser._isPrefabInstanceEntity(entityConfig)) {
-        HierarchyParser._assertPrefabInstanceEntityShape(entityConfig);
         promises.push(
           this._loadPrefabInstance(entityConfig, engine).then((entity) => {
             entityMap.set(i, entity);
@@ -350,20 +349,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
   private static _isPrefabInstanceEntity(entityConfig: EntitySchema): entityConfig is PrefabInstanceEntitySchema {
     return "instance" in entityConfig;
-  }
-
-  private static _assertPrefabInstanceEntityShape(entityConfig: PrefabInstanceEntitySchema): void {
-    const shape = entityConfig as unknown as Record<string, unknown>;
-    const invalidKeys = ["name", "isActive", "layer", "position", "rotation", "scale", "children", "components"].filter(
-      (key) => shape[key] != null
-    );
-    if (invalidKeys.length > 0) {
-      throw new Error(
-        `Prefab instance entity cannot declare ${invalidKeys.join(
-          ", "
-        )} directly. Move root overrides to instance.overrides.entityProps with path: [].`
-      );
-    }
   }
 
   /** Apply entity-level props (name, isActive, layer, transform) to an entity. */

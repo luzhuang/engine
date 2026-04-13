@@ -167,38 +167,6 @@ describe("$ref null guard in Prefab mode", () => {
 });
 
 describe("Prefab instance overrides", () => {
-  it("should reject direct root props on prefab instance entities", async () => {
-    const nestedPrefabData: PrefabFile = {
-      version: "2.0",
-      entities: [{ name: "nestedRoot" }],
-      components: [],
-      root: 0
-    };
-    const nestedPrefab = await PrefabParser.parse(engine, "nested-invalid.prefab", nestedPrefabData);
-    // @ts-ignore
-    engine.resourceManager._objectPool["nested-invalid.prefab"] = nestedPrefab;
-
-    const invalidPrefabData = {
-      version: "2.0",
-      entities: [
-        { name: "outerRoot", children: [1] },
-        {
-          name: "invalidRootName",
-          instance: { asset: { $ref: "nested-invalid.prefab" } }
-        }
-      ],
-      components: [],
-      root: 0
-    } as any;
-
-    expect(() => PrefabParser.parse(engine, "invalid-instance.prefab", invalidPrefabData)).toThrow(
-      "Prefab instance entity cannot declare name directly. Move root overrides to instance.overrides.entityProps with path: []."
-    );
-
-    // @ts-ignore
-    delete engine.resourceManager._objectPool["nested-invalid.prefab"];
-  });
-
   it("should apply entityProps overrides to nested prefab entities", async () => {
     // Nested prefab: root → child
     const nestedPrefabData: PrefabFile = {
