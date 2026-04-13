@@ -1,5 +1,5 @@
 import { Component, Loader } from "@galacean/engine-core";
-import type { CallSpec, MutationBlock } from "../../../scene-format/types";
+import type { CallSpec, ComponentRef, MutationBlock, SignalListener } from "../../../scene-format/types";
 import { ParserContext, ParserType } from "./ParserContext";
 
 export class ReflectionParser {
@@ -119,19 +119,12 @@ export class ReflectionParser {
 
     // $component — component reference: { entity, type, index }
     if ("$component" in obj) {
-      return Promise.resolve(this._resolveComponent(obj.$component as { entity: number; type: string; index: number }));
+      return Promise.resolve(this._resolveComponent(obj.$component as ComponentRef));
     }
 
     // $signal — signal binding: register listeners on the existing Signal instance
     if ("$signal" in obj) {
-      return this._resolveSignal(
-        originValue,
-        obj.$signal as Array<{
-          target: { $component: { entity: number; type: string; index: number } };
-          methodName: string;
-          args?: unknown[];
-        }>
-      );
+      return this._resolveSignal(originValue, obj.$signal as SignalListener[]);
     }
 
     // Plain object — recurse each value, modifying originValue in place or building a new object
@@ -146,14 +139,7 @@ export class ReflectionParser {
     return Promise.all(promises).then(() => target);
   }
 
-  private _resolveSignal(
-    signal: any,
-    listeners: Array<{
-      target: { $component: { entity: number; type: string; index: number } };
-      methodName: string;
-      args?: unknown[];
-    }>
-  ): Promise<any> {
+  private _resolveSignal(signal: any, listeners: SignalListener[]): Promise<any> {
     if (!signal || typeof signal.on !== "function") {
       return Promise.reject(new Error("$signal requires a pre-initialized Signal instance on the target property"));
     }
@@ -168,7 +154,7 @@ export class ReflectionParser {
     return Promise.all(promises).then(() => signal);
   }
 
-  private _resolveComponent(comp: { entity: number; type: string; index: number }): Component | null {
+  private _resolveComponent(comp: ComponentRef): Component | null {
     const entity = this._context.entityMap.get(comp.entity);
     if (!entity) return null;
     const type = Loader.getClass(comp.type);

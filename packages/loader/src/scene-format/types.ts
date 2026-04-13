@@ -71,6 +71,18 @@ export interface ComponentSelector {
   index: number;
 }
 
+export interface ComponentRef {
+  entity: number;
+  type: string;
+  index: number;
+}
+
+export interface SignalListener {
+  target: { $component: ComponentRef };
+  methodName: string;
+  args?: unknown[];
+}
+
 export interface ComponentOverride extends MutationBlock {
   path: number[];
   selector: ComponentSelector;
