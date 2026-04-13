@@ -3,6 +3,7 @@ import { GLTFResource } from "../../../gltf";
 import { PrefabResource } from "../../../prefab/PrefabResource";
 import {
   type ComponentSchema,
+  type ComponentSelector,
   type ComponentOverride,
   type EntityPropOverride,
   type EntityOverrideProps,
@@ -12,7 +13,7 @@ import {
   type NormalEntitySchema,
   type PrefabInstanceEntitySchema
 } from "../../../scene-format/types";
-import { ParserContext, ParserType, type PrefabInstanceContext } from "./ParserContext";
+import { ParserContext, ParserType } from "./ParserContext";
 import { ReflectionParser } from "./ReflectionParser";
 
 /** @Internal */
@@ -23,8 +24,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   protected _reject: (reason: any) => void;
   protected _engine: Engine;
   protected _reflectionParser: ReflectionParser;
-
-  private _prefabContextMap = new WeakMap<Entity, PrefabInstanceContext>();
 
   constructor(
     public readonly data: HierarchyFile,
@@ -206,16 +205,13 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (!instance.overrides) continue;
 
       const rootEntity = entityMap.get(i);
-      const ctx = this._prefabContextMap.get(rootEntity);
-      if (!ctx) continue;
-
       const overrides = instance.overrides;
 
       // entityProps — entity-level property overrides
       if (overrides.entityProps) {
         for (let j = 0, m = overrides.entityProps.length; j < m; j++) {
           const override = overrides.entityProps[j] as EntityPropOverride;
-          const target = ctx.entityMap.get(override.path.join("/"));
+          const target = HierarchyParser._resolveEntity(rootEntity, override.path);
           if (target) {
             HierarchyParser._applyEntityProps(target, override);
           }
@@ -227,14 +223,14 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
         const seenTargets = new Set<string>();
         for (let j = 0, m = overrides.componentProps.length; j < m; j++) {
           const override = overrides.componentProps[j] as ComponentOverride;
-          const path = override.path.join("/");
-          const componentKey = path ? `${path}:${override.selector}` : `:${override.selector}`;
-          if (seenTargets.has(componentKey)) {
-            return Promise.reject(new Error(`Duplicate component override for "${componentKey}"`));
+          const dedupKey = `${override.path.join("/")}:${override.selector.type}/${override.selector.index}`;
+          if (seenTargets.has(dedupKey)) {
+            return Promise.reject(new Error(`Duplicate component override for "${dedupKey}"`));
           }
-          seenTargets.add(componentKey);
+          seenTargets.add(dedupKey);
 
-          const target = ctx.components.get(componentKey);
+          const entity = HierarchyParser._resolveEntity(rootEntity, override.path);
+          const target = entity ? HierarchyParser._resolveComponent(entity, override.selector) : null;
           if (target) {
             promises.push(this._reflectionParser.parseMutationBlock(target, override));
           }
@@ -245,8 +241,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.addedComponents) {
         for (let j = 0, m = overrides.addedComponents.length; j < m; j++) {
           const added = overrides.addedComponents[j];
-          const path = added.target.join("/");
-          const target = ctx.entityMap.get(path);
+          const target = HierarchyParser._resolveEntity(rootEntity, added.target);
           if (target) {
             const compConfig = added.component;
             const component = HierarchyParser._addComponentFromConfig(target, compConfig);
@@ -259,8 +254,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.addedEntities) {
         for (let j = 0, m = overrides.addedEntities.length; j < m; j++) {
           const added = overrides.addedEntities[j];
-          const path = added.parent.join("/");
-          const parent = ctx.entityMap.get(path);
+          const parent = HierarchyParser._resolveEntity(rootEntity, added.parent);
           if (parent) {
             this._createInlineEntity(added.entity, parent, promises);
           }
@@ -270,8 +264,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       // removedEntities — destroy entities from prefab tree
       if (overrides.removedEntities) {
         for (let j = 0, m = overrides.removedEntities.length; j < m; j++) {
-          const path = overrides.removedEntities[j].join("/");
-          const target = ctx.entityMap.get(path);
+          const target = HierarchyParser._resolveEntity(rootEntity, overrides.removedEntities[j]);
           if (target) target.destroy();
         }
       }
@@ -280,11 +273,11 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.removedComponents) {
         for (let j = 0, m = overrides.removedComponents.length; j < m; j++) {
           const override = overrides.removedComponents[j];
-          const path = override.path.join("/");
+          const entity = HierarchyParser._resolveEntity(rootEntity, override.path);
+          if (!entity) continue;
           const selectors = override.selectors;
-          for (let k = 0, n = selectors.length; k < n; k++) {
-            const componentKey = path ? `${path}:${selectors[k]}` : `:${selectors[k]}`;
-            const target = ctx.components.get(componentKey);
+          for (let k = 0, p = selectors.length; k < p; k++) {
+            const target = HierarchyParser._resolveComponent(entity, selectors[k]);
             if (target) target.destroy();
           }
         }
@@ -312,41 +305,9 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
               : prefabResource.instantiateSceneRoot();
 
           this._onEntityCreated(entity);
-          const instanceContext = HierarchyParser._buildInstanceContext(entity);
-          this._prefabContextMap.set(entity, instanceContext);
-
           return entity;
         })
     );
-  }
-
-  private static _buildInstanceContext(entity: Entity): PrefabInstanceContext {
-    const ctx: PrefabInstanceContext = {
-      entityMap: new Map(),
-      components: new Map()
-    };
-    HierarchyParser._walkPrefabTree(entity, ctx, "");
-    return ctx;
-  }
-
-  private static _walkPrefabTree(entity: Entity, ctx: PrefabInstanceContext, path: string): void {
-    ctx.entityMap.set(path, entity);
-    const componentIndexMap: Record<string, number> = {};
-
-    // Must iterate _components directly to preserve insertion order — the per-type index
-    // (e.g. "MeshRenderer/0") used by prefab override selectors depends on this ordering.
-    // @ts-ignore
-    entity._components.forEach((component: Component) => {
-      // @ts-ignore
-      const name = Loader.getClassName(component.constructor);
-      if (!(name in componentIndexMap)) componentIndexMap[name] = 0;
-      ctx.components.set(`${path}:${name}/${componentIndexMap[name]++}`, component);
-    });
-
-    for (let i = 0, n = entity.children.length; i < n; i++) {
-      const childPath = path ? `${path}/${i}` : `${i}`;
-      HierarchyParser._walkPrefabTree(entity.children[i], ctx, childPath);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -377,6 +338,24 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   // ---------------------------------------------------------------------------
   // Utilities
   // ---------------------------------------------------------------------------
+
+  /** Resolve an entity inside a prefab instance by walking the child-index path from root */
+  private static _resolveEntity(root: Entity, path: number[]): Entity | null {
+    let entity = root;
+    for (let i = 0, n = path.length; i < n; i++) {
+      const idx = path[i];
+      if (idx >= entity.children.length) return null;
+      entity = entity.children[idx];
+    }
+    return entity;
+  }
+
+  /** Resolve a component on an entity by type name + per-type index */
+  private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component | null {
+    const Class = Loader.getClass(selector.type);
+    if (!Class) return null;
+    return entity.getComponents(Class, [])[selector.index] ?? null;
+  }
 
   /** Resolve component class from config and add to entity. Throws if class is not registered. */
   private static _addComponentFromConfig(entity: Entity, config: ComponentSchema): Component {

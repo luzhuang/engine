@@ -66,14 +66,19 @@ export interface EntityPropOverride extends EntityOverrideProps {
   path: number[];
 }
 
+export interface ComponentSelector {
+  type: string;
+  index: number;
+}
+
 export interface ComponentOverride extends MutationBlock {
   path: number[];
-  selector: string;
+  selector: ComponentSelector;
 }
 
 export interface RemovedComponentOverride {
   path: number[];
-  selectors: string[];
+  selectors: ComponentSelector[];
 }
 
 export interface InstanceOverrides {

@@ -264,7 +264,7 @@ describe("Prefab instance overrides", () => {
           instance: {
             asset: { $ref: "nested-cp.prefab" },
             overrides: {
-              componentProps: [{ path: [], selector: "MeshRenderer/0", props: { enabled: false } }]
+              componentProps: [{ path: [], selector: { type: "MeshRenderer", index: 0 }, props: { enabled: false } }]
             }
           }
         }
@@ -307,7 +307,7 @@ describe("Prefab instance overrides", () => {
               componentProps: [
                 {
                   path: [],
-                  selector: "OverrideCallScript/0",
+                  selector: { type: "OverrideCallScript", index: 0 },
                   props: { value: "base" },
                   calls: [{ method: "appendSuffix", args: ["-override"] }]
                 }
@@ -500,7 +500,7 @@ describe("Prefab instance overrides", () => {
           instance: {
             asset: { $ref: "nested-rc.prefab" },
             overrides: {
-              removedComponents: [{ path: [], selectors: ["MeshRenderer/0"] }]
+              removedComponents: [{ path: [], selectors: [{ type: "MeshRenderer", index: 0 }] }]
             }
           }
         }

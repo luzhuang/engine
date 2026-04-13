@@ -500,7 +500,7 @@ describe("SceneParser v2 entity tree", () => {
               componentProps: [
                 {
                   path: [],
-                  selector: "MeshRenderer/0",
+                  selector: { type: "MeshRenderer", index: 0 },
                   calls: [
                     {
                       method: "setMaterial",
