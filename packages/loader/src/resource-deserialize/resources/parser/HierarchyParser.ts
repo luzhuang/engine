@@ -47,8 +47,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     this._parseEntities()
       .then(() => this._organizeEntities())
       .then(() => this._parseComponents())
-      .then(() => this._parseComponentsProps())
-      .then(() => this._parseComponentsCalls())
+      .then(() => this._parseComponentsPropsAndCalls())
       .then(() => this._parsePrefabOverrides())
       .then(() => this._clearAndResolve())
       .then(this._resolve)
@@ -153,10 +152,10 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   }
 
   // ---------------------------------------------------------------------------
-  // Stage 4: Apply props to components
+  // Stage 4: Apply props and execute calls on components
   // ---------------------------------------------------------------------------
 
-  private _parseComponentsProps(): Promise<void> {
+  private _parseComponentsPropsAndCalls(): Promise<void> {
     const { componentPairs } = this.context;
     const reflectionParser = this._reflectionParser;
     const promises: Promise<any>[] = [];
@@ -164,22 +163,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     for (let i = 0, n = componentPairs.length; i < n; i++) {
       const { component, config } = componentPairs[i];
       promises.push(reflectionParser.parseProps(component, config.props));
-    }
-
-    return Promise.all(promises).then(() => {});
-  }
-
-  // ---------------------------------------------------------------------------
-  // Stage 4.5: Execute component calls after props
-  // ---------------------------------------------------------------------------
-
-  private _parseComponentsCalls(): Promise<void> {
-    const { componentPairs } = this.context;
-    const reflectionParser = this._reflectionParser;
-    const promises: Promise<any>[] = [];
-
-    for (let i = 0, n = componentPairs.length; i < n; i++) {
-      const { component, config } = componentPairs[i];
       if (config.calls) {
         promises.push(reflectionParser.parseCalls(component, config.calls));
       }
@@ -220,15 +203,8 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
       // componentProps — component-level property overrides
       if (overrides.componentProps) {
-        const seenTargets = new Set<string>();
         for (let j = 0, m = overrides.componentProps.length; j < m; j++) {
           const override = overrides.componentProps[j] as ComponentOverride;
-          const dedupKey = `${override.path.join("/")}:${override.selector.type}/${override.selector.index}`;
-          if (seenTargets.has(dedupKey)) {
-            return Promise.reject(new Error(`Duplicate component override for "${dedupKey}"`));
-          }
-          seenTargets.add(dedupKey);
-
           const entity = HierarchyParser._resolveEntity(rootEntity, override.path);
           const target = entity ? HierarchyParser._resolveComponent(entity, override.selector) : null;
           if (target) {
@@ -350,11 +326,18 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     return entity;
   }
 
+  private static _componentBuffer: Component[] = [];
+
   /** Resolve a component on an entity by type name + per-type index */
   private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component | null {
     const Class = Loader.getClass(selector.type);
     if (!Class) return null;
-    return entity.getComponents(Class, [])[selector.index] ?? null;
+    const buffer = HierarchyParser._componentBuffer;
+    buffer.length = 0;
+    entity.getComponents(Class, buffer);
+    const result = buffer[selector.index] ?? null;
+    buffer.length = 0;
+    return result;
   }
 
   /** Resolve component class from config and add to entity. Throws if class is not registered. */
@@ -369,12 +352,27 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     return "instance" in entityConfig;
   }
 
+  private static readonly _prefabInstanceInvalidKeys = [
+    "name",
+    "isActive",
+    "layer",
+    "position",
+    "rotation",
+    "scale",
+    "children",
+    "components"
+  ];
+
   private static _assertPrefabInstanceEntityShape(entityConfig: PrefabInstanceEntitySchema): void {
     const shape = entityConfig as unknown as Record<string, unknown>;
-    const invalidKeys = ["name", "isActive", "layer", "position", "rotation", "scale", "children", "components"].filter(
-      (key) => shape[key] != null
-    );
-    if (invalidKeys.length > 0) {
+    const keys = HierarchyParser._prefabInstanceInvalidKeys;
+    let invalidKeys: string[] | null = null;
+    for (let i = 0, n = keys.length; i < n; i++) {
+      if (shape[keys[i]] != null) {
+        (invalidKeys ??= []).push(keys[i]);
+      }
+    }
+    if (invalidKeys) {
       throw new Error(
         `Prefab instance entity cannot declare ${invalidKeys.join(
           ", "
