@@ -18,6 +18,18 @@ import { ReflectionParser } from "./ReflectionParser";
 
 /** @Internal */
 export abstract class HierarchyParser<T extends Scene | PrefabResource, V extends ParserContext> {
+  private static _componentBuffer: Component[] = [];
+  private static readonly _prefabInstanceInvalidKeys = [
+    "name",
+    "isActive",
+    "layer",
+    "position",
+    "rotation",
+    "scale",
+    "children",
+    "components"
+  ];
+
   readonly promise: Promise<T>;
 
   protected _resolve: (item: T) => void;
@@ -326,8 +338,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     return entity;
   }
 
-  private static _componentBuffer: Component[] = [];
-
   /** Resolve a component on an entity by type name + per-type index */
   private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component | null {
     const Class = Loader.getClass(selector.type);
@@ -351,17 +361,6 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   private static _isPrefabInstanceEntity(entityConfig: EntitySchema): entityConfig is PrefabInstanceEntitySchema {
     return "instance" in entityConfig;
   }
-
-  private static readonly _prefabInstanceInvalidKeys = [
-    "name",
-    "isActive",
-    "layer",
-    "position",
-    "rotation",
-    "scale",
-    "children",
-    "components"
-  ];
 
   private static _assertPrefabInstanceEntityShape(entityConfig: PrefabInstanceEntitySchema): void {
     const shape = entityConfig as unknown as Record<string, unknown>;

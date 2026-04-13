@@ -1,8 +1,10 @@
-import { Loader } from "@galacean/engine-core";
+import { Component, Loader } from "@galacean/engine-core";
 import type { CallSpec, MutationBlock } from "../../../scene-format/types";
 import { ParserContext, ParserType } from "./ParserContext";
 
 export class ReflectionParser {
+  private static _componentBuffer: Component[] = [];
+
   constructor(private readonly _context: ParserContext) {}
 
   /**
@@ -165,8 +167,6 @@ export class ReflectionParser {
     });
     return Promise.all(promises).then(() => signal);
   }
-
-  private static _componentBuffer: any[] = [];
 
   private _resolveComponent(comp: { entity: number; type: string; index: number }): any {
     const entity = this._context.entityMap.get(comp.entity);
