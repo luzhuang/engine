@@ -195,10 +195,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.entityProps) {
         for (let j = 0, m = overrides.entityProps.length; j < m; j++) {
           const override = overrides.entityProps[j] as EntityPropOverride;
-          const target = HierarchyParser._resolveEntity(rootEntity, override.path);
-          if (target) {
-            HierarchyParser._applyEntityProps(target, override);
-          }
+          HierarchyParser._applyEntityProps(HierarchyParser._resolveEntity(rootEntity, override.path), override);
         }
       }
 
@@ -207,10 +204,8 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
         for (let j = 0, m = overrides.componentProps.length; j < m; j++) {
           const override = overrides.componentProps[j] as ComponentOverride;
           const entity = HierarchyParser._resolveEntity(rootEntity, override.path);
-          const target = entity ? HierarchyParser._resolveComponent(entity, override.selector) : null;
-          if (target) {
-            promises.push(this._reflectionParser.parseMutationBlock(target, override));
-          }
+          const target = HierarchyParser._resolveComponent(entity, override.selector);
+          promises.push(this._reflectionParser.parseMutationBlock(target, override));
         }
       }
 
@@ -218,12 +213,9 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.addedComponents) {
         for (let j = 0, m = overrides.addedComponents.length; j < m; j++) {
           const added = overrides.addedComponents[j];
-          const target = HierarchyParser._resolveEntity(rootEntity, added.target);
-          if (target) {
-            const compConfig = added.component;
-            const component = HierarchyParser._addComponentFromConfig(target, compConfig);
-            promises.push(this._reflectionParser.parseMutationBlock(component, compConfig));
-          }
+          const entity = HierarchyParser._resolveEntity(rootEntity, added.target);
+          const component = HierarchyParser._addComponentFromConfig(entity, added.component);
+          promises.push(this._reflectionParser.parseMutationBlock(component, added.component));
         }
       }
 
@@ -231,18 +223,14 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       if (overrides.addedEntities) {
         for (let j = 0, m = overrides.addedEntities.length; j < m; j++) {
           const added = overrides.addedEntities[j];
-          const parent = HierarchyParser._resolveEntity(rootEntity, added.parent);
-          if (parent) {
-            this._createInlineEntity(added.entity, parent, promises);
-          }
+          this._createInlineEntity(added.entity, HierarchyParser._resolveEntity(rootEntity, added.parent), promises);
         }
       }
 
       // removedEntities — destroy entities from prefab tree
       if (overrides.removedEntities) {
         for (let j = 0, m = overrides.removedEntities.length; j < m; j++) {
-          const target = HierarchyParser._resolveEntity(rootEntity, overrides.removedEntities[j]);
-          if (target) target.destroy();
+          HierarchyParser._resolveEntity(rootEntity, overrides.removedEntities[j]).destroy();
         }
       }
 
@@ -251,11 +239,9 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
         for (let j = 0, m = overrides.removedComponents.length; j < m; j++) {
           const override = overrides.removedComponents[j];
           const entity = HierarchyParser._resolveEntity(rootEntity, override.path);
-          if (!entity) continue;
           const selectors = override.selectors;
           for (let k = 0, p = selectors.length; k < p; k++) {
-            const target = HierarchyParser._resolveComponent(entity, selectors[k]);
-            if (target) target.destroy();
+            HierarchyParser._resolveComponent(entity, selectors[k]).destroy();
           }
         }
       }
@@ -317,24 +303,20 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   // ---------------------------------------------------------------------------
 
   /** Resolve an entity inside a prefab instance by walking the child-index path from root */
-  private static _resolveEntity(root: Entity, path: number[]): Entity | null {
+  private static _resolveEntity(root: Entity, path: number[]): Entity {
     let entity = root;
     for (let i = 0, n = path.length; i < n; i++) {
-      const idx = path[i];
-      if (idx >= entity.children.length) return null;
-      entity = entity.children[idx];
+      entity = entity.children[path[i]];
     }
     return entity;
   }
 
   /** Resolve a component on an entity by type name + per-type index */
-  private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component | null {
-    const Class = Loader.getClass(selector.type);
-    if (!Class) return null;
+  private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component {
     const buffer = HierarchyParser._componentBuffer;
     buffer.length = 0;
-    entity.getComponents(Class, buffer);
-    const result = buffer[selector.index] ?? null;
+    entity.getComponents(Loader.getClass(selector.type), buffer);
+    const result = buffer[selector.index];
     buffer.length = 0;
     return result;
   }
