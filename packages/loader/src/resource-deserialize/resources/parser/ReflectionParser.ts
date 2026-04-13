@@ -166,11 +166,18 @@ export class ReflectionParser {
     return Promise.all(promises).then(() => signal);
   }
 
+  private static _componentBuffer: any[] = [];
+
   private _resolveComponent(comp: { entity: number; type: string; index: number }): any {
     const entity = this._context.entityMap.get(comp.entity);
     if (!entity) return null;
     const type = Loader.getClass(comp.type);
     if (!type) return null;
-    return entity.getComponents(type, [])[comp.index] ?? null;
+    const buffer = ReflectionParser._componentBuffer;
+    buffer.length = 0;
+    entity.getComponents(type, buffer);
+    const result = buffer[comp.index] ?? null;
+    buffer.length = 0;
+    return result;
   }
 }
