@@ -129,7 +129,7 @@ export class ReflectionParser {
         obj.$signal as Array<{
           target: { $component: { entity: number; type: string; index: number } };
           methodName: string;
-          arguments?: unknown[];
+          args?: unknown[];
         }>
       );
     }
@@ -151,7 +151,7 @@ export class ReflectionParser {
     listeners: Array<{
       target: { $component: { entity: number; type: string; index: number } };
       methodName: string;
-      arguments?: unknown[];
+      args?: unknown[];
     }>
   ): Promise<any> {
     if (!signal || typeof signal.on !== "function") {
@@ -161,7 +161,7 @@ export class ReflectionParser {
       const targetComponent = this._resolveComponent(listener.target.$component);
       if (!targetComponent) return Promise.resolve();
 
-      return Promise.all((listener.arguments ?? []).map((a) => this._resolveValue(a))).then((resolvedArgs) => {
+      return Promise.all((listener.args ?? []).map((a) => this._resolveValue(a))).then((resolvedArgs) => {
         signal.on(targetComponent, listener.methodName, ...resolvedArgs);
       });
     });
