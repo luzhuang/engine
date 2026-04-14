@@ -306,6 +306,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     let entity = root;
     for (let i = 0, n = path.length; i < n; i++) {
       entity = entity.children[path[i]];
+      if (!entity) throw new Error(`Override target entity not found at path [${path}], failed at depth ${i}`);
     }
     return entity;
   }
@@ -317,6 +318,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     entity.getComponents(Loader.getClass(selector.type), buffer);
     const result = buffer[selector.index];
     buffer.length = 0;
+    if (!result) throw new Error(`Override target component not found: ${selector.type}/${selector.index}`);
     return result;
   }
 
