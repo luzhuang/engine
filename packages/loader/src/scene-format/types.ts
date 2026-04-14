@@ -15,9 +15,13 @@ import {
 export type Vec3Tuple = [number, number, number];
 export type Vec4Tuple = [number, number, number, number];
 
-export interface AssetRef {
-  $ref: string;
+export interface RefItem {
+  url: string;
   key?: string;
+}
+
+export interface AssetRef {
+  $ref: number;
 }
 
 export interface CallSpec {
@@ -103,7 +107,7 @@ export interface InstanceOverrides {
 }
 
 export interface InstanceSchema {
-  asset: AssetRef;
+  asset: number;
   overrides?: InstanceOverrides;
 }
 
@@ -127,6 +131,7 @@ export enum SpecularMode {
 /** Common base for v2 scene and prefab files. */
 export interface HierarchyFile {
   version: "2.0";
+  refs: RefItem[];
   entities: EntitySchema[];
   components: ComponentSchema[];
 }
@@ -138,15 +143,15 @@ export interface SceneFile extends HierarchyFile {
     background: {
       mode: BackgroundMode;
       color: Vec4Tuple;
-      texture?: AssetRef;
+      texture?: number;
       textureFillMode?: BackgroundTextureFillMode;
-      skyMesh?: AssetRef;
-      skyMaterial?: AssetRef;
+      skyMesh?: number;
+      skyMaterial?: number;
     };
     ambient?: {
       diffuseMode: DiffuseMode;
-      ambientLight?: AssetRef;
-      customAmbientLight?: AssetRef;
+      ambientLight?: number;
+      customAmbientLight?: number;
       diffuseSolidColor?: Vec4Tuple;
       diffuseIntensity: number;
       specularIntensity: number;

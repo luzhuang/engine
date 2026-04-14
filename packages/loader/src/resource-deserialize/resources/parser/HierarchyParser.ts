@@ -11,7 +11,8 @@ import {
   type HierarchyFile,
   type InlineEntitySchema,
   type NormalEntitySchema,
-  type PrefabInstanceEntitySchema
+  type PrefabInstanceEntitySchema,
+  type RefItem
 } from "../../../scene-format/types";
 import { ParserContext, ParserType } from "./ParserContext";
 import { ReflectionParser } from "./ReflectionParser";
@@ -41,7 +42,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
       this._reject = reject;
       this._resolve = resolve;
     });
-    this._reflectionParser = new ReflectionParser(context);
+    this._reflectionParser = new ReflectionParser(context, data.refs);
   }
 
   public start() {
@@ -145,7 +146,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
       for (let j = 0, m = componentIndices.length; j < m; j++) {
         const config = allComponents[componentIndices[j]];
-        const component = HierarchyParser._addComponentFromConfig(entity, config);
+        const component = HierarchyParser._addComponentFromConfig(entity, config, this.data.refs);
         componentPairs.push({ component, config });
       }
     }
@@ -213,7 +214,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
         for (let j = 0, m = overrides.addedComponents.length; j < m; j++) {
           const added = overrides.addedComponents[j];
           const entity = HierarchyParser._resolveEntity(rootEntity, added.target);
-          const component = HierarchyParser._addComponentFromConfig(entity, added.component);
+          const component = HierarchyParser._addComponentFromConfig(entity, added.component, this.data.refs);
           promises.push(this._reflectionParser.parseMutationBlock(component, added.component));
         }
       }
@@ -255,11 +256,12 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
   private _loadPrefabInstance(entityConfig: PrefabInstanceEntitySchema, engine: Engine): Promise<Entity> {
     const instance = entityConfig.instance;
+    const refItem = this.data.refs[instance.asset];
 
     return (
       engine.resourceManager
         // @ts-ignore
-        .getResourceByRef<Entity>(instance.asset)
+        .getResourceByRef<Entity>({ $ref: refItem.url, key: refItem.key })
         .then((prefabResource: PrefabResource | GLTFResource) => {
           const entity =
             prefabResource instanceof PrefabResource
@@ -285,7 +287,7 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
     if (config.components) {
       for (let i = 0, n = config.components.length; i < n; i++) {
         const compConfig = config.components[i];
-        const component = HierarchyParser._addComponentFromConfig(entity, compConfig);
+        const component = HierarchyParser._addComponentFromConfig(entity, compConfig, this.data.refs);
         promises.push(this._reflectionParser.parseMutationBlock(component, compConfig));
       }
     }
@@ -327,8 +329,8 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
   }
 
   /** Resolve component class from config and add to entity. Throws if class is not registered. */
-  private static _addComponentFromConfig(entity: Entity, config: ComponentSchema): Component {
-    const key = config.script ? config.script.$ref : config.type;
+  private static _addComponentFromConfig(entity: Entity, config: ComponentSchema, refs: RefItem[]): Component {
+    const key = config.script ? refs[config.script.$ref].url : config.type;
     const Class = Loader.getClass(key);
     if (!Class) throw new Error(`Loader.getClass: class "${key}" is not registered`);
     return entity.addComponent(Class);

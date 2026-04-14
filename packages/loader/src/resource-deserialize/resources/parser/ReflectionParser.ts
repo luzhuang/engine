@@ -1,11 +1,14 @@
 import { Component, Loader } from "@galacean/engine-core";
-import type { CallSpec, ComponentRef, MutationBlock, SignalListener } from "../../../scene-format/types";
+import type { CallSpec, ComponentRef, MutationBlock, RefItem, SignalListener } from "../../../scene-format/types";
 import { ParserContext, ParserType } from "./ParserContext";
 
 export class ReflectionParser {
   private static _componentBuffer: Component[] = [];
 
-  constructor(private readonly _context: ParserContext) {}
+  constructor(
+    private readonly _context: ParserContext,
+    private readonly _refs: RefItem[]
+  ) {}
 
   /**
    * Apply v2 props to a component/object instance.
@@ -84,12 +87,12 @@ export class ReflectionParser {
 
     const obj = value as Record<string, unknown>;
 
-    // $ref — asset reference
+    // $ref — asset reference (index into refs array)
     if ("$ref" in obj) {
       const { _context: context } = this;
-      const ref = obj as { $ref: string; key?: string };
+      const refItem = this._refs[obj.$ref as number];
       // @ts-ignore
-      return context.resourceManager.getResourceByRef(ref).then((resource) => {
+      return context.resourceManager.getResourceByRef({ $ref: refItem.url, key: refItem.key }).then((resource) => {
         if (resource && context.type === ParserType.Prefab) {
           // @ts-ignore
           context.resource._addDependenceAsset(resource);

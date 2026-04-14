@@ -89,14 +89,15 @@ describe("Prefab parse benchmark", () => {
     const { entities, components } = generateTree(LARGE_DEPTH, LARGE_BRANCHING);
     console.log(`[Setup] Tree: ${entities.length} entities, ${components.length} components`);
 
-    const innerPrefabData: PrefabFile = { version: "2.0", entities, components, root: 0 };
+    const innerPrefabData: PrefabFile = { version: "2.0", refs: [], entities, components, root: 0 };
     const innerPrefab = await PrefabParser.parse(engine, "bench-large-inner.prefab", innerPrefabData);
     // @ts-ignore
     engine.resourceManager._objectPool["bench-large-inner.prefab"] = innerPrefab;
 
     const outerPrefabData: PrefabFile = {
       version: "2.0",
-      entities: [{ name: "outer", children: [1] }, { instance: { asset: { $ref: "bench-large-inner.prefab" } } }],
+      refs: [{ url: "bench-large-inner.prefab" }],
+      entities: [{ name: "outer", children: [1] }, { instance: { asset: 0 } }],
       components: [],
       root: 0
     };
@@ -117,7 +118,7 @@ describe("Prefab parse benchmark", () => {
   it(`with 50 overrides — large tree (depth=${LARGE_DEPTH}, branching=${LARGE_BRANCHING})`, async () => {
     const { entities, components, leafPaths } = generateTree(LARGE_DEPTH, LARGE_BRANCHING);
 
-    const innerPrefabData: PrefabFile = { version: "2.0", entities, components, root: 0 };
+    const innerPrefabData: PrefabFile = { version: "2.0", refs: [], entities, components, root: 0 };
     const innerPrefab = await PrefabParser.parse(engine, "bench-large-ov.prefab", innerPrefabData);
     // @ts-ignore
     engine.resourceManager._objectPool["bench-large-ov.prefab"] = innerPrefab;
@@ -125,11 +126,12 @@ describe("Prefab parse benchmark", () => {
     const overrideLeaves = leafPaths.slice(0, 50);
     const outerPrefabData: PrefabFile = {
       version: "2.0",
+      refs: [{ url: "bench-large-ov.prefab" }],
       entities: [
         { name: "outer", children: [1] },
         {
           instance: {
-            asset: { $ref: "bench-large-ov.prefab" },
+            asset: 0,
             overrides: {
               entityProps: [
                 { path: [], name: "overriddenRoot" },
