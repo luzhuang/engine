@@ -313,9 +313,11 @@ export abstract class HierarchyParser<T extends Scene | PrefabResource, V extend
 
   /** Resolve a component on an entity by type name + per-type index */
   private static _resolveComponent(entity: Entity, selector: ComponentSelector): Component {
+    const type = Loader.getClass(selector.type);
+    if (!type) throw new Error(`Override target component type "${selector.type}" is not registered`);
     const buffer = HierarchyParser._componentBuffer;
     buffer.length = 0;
-    entity.getComponents(Loader.getClass(selector.type), buffer);
+    entity.getComponents(type, buffer);
     const result = buffer[selector.index];
     buffer.length = 0;
     if (!result) throw new Error(`Override target component not found: ${selector.type}/${selector.index}`);
