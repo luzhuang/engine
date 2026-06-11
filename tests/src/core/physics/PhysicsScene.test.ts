@@ -12,13 +12,12 @@ import {
   Scene,
   Script,
   SphereColliderShape,
-  StaticCollider,
-  OverlapHitResult
+  StaticCollider
 } from "@galacean/engine-core";
 import { Ray, Vector3, Quaternion } from "@galacean/engine-math";
 import { LitePhysics } from "@galacean/engine-physics-lite";
 import { PhysXPhysics } from "@galacean/engine-physics-physx";
-import { WebGLEngine } from "@galacean/engine";
+import { WebGLEngine } from "@galacean/engine-rhi-webgl";
 import { vi, describe, beforeAll, expect, it, afterEach } from "vitest";
 
 class CollisionTestScript extends Script {
@@ -503,6 +502,7 @@ describe("Physics Test", () => {
       expect(physicsScene.raycast(ray, Number.MAX_VALUE, Layer.Everything, outHitResult)).to.eq(false);
 
       const rootEntityCharacter = root.createChild("root_character");
+      rootEntityCharacter.layer = Layer.Layer3;
       rootEntityCharacter.transform.position = new Vector3(0, 0, 0);
 
       const characterController = rootEntityCharacter.addComponent(CharacterController);
@@ -826,7 +826,7 @@ describe("Physics Test", () => {
       const halfExtents = new Vector3(0.5, 0.5, 0.5);
       const direction = new Vector3(0, 1, 0);
       const orientation = new Quaternion();
-      expect(physicsScene.boxCast(center, halfExtents, direction, orientation)).to.eq(false);
+      expect(physicsScene.boxCast(center, halfExtents, direction)).to.eq(false);
 
       // Test boxCast with hit
       direction.set(-1, -1, -1);
@@ -1780,14 +1780,16 @@ describe("Physics Test", () => {
         collisionTestScript.useLite = false;
 
         // Test that collision works correctly, A is dynamic and kinematic, B is static.
+        // SceneDesc.staticKineFilteringMode = eKEEP + Collider.move() routing kinematic
+        // to setKinematicTarget make static-kinematic pairs generate contact events.
         resetSpy();
         setColliderProps(entity1, true, false, true);
         setColliderProps(entity2, false, false, false);
         updatePhysics(physicsMgr);
 
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionEnter).toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionStay).toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionExit).toHaveBeenCalled();
         expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
@@ -1900,14 +1902,16 @@ describe("Physics Test", () => {
         collisionTestScript.useLite = false;
 
         // Test that collision works correctly, both A,B are dynamic, kinematic.
+        // SceneDesc.kineKineFilteringMode = eKEEP + Collider.move() routing kinematic
+        // to setKinematicTarget make kine-kine pairs generate contact events.
         resetSpy();
         setColliderProps(entity1, true, false, true);
         setColliderProps(entity2, true, false, true);
         updatePhysics(physicsMgr);
 
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionEnter).toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionStay).toHaveBeenCalled();
+        expect(collisionTestScript.onCollisionExit).toHaveBeenCalled();
         expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();

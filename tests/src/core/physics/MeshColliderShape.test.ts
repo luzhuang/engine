@@ -11,7 +11,7 @@ import {
   ModelMesh
 } from "@galacean/engine-core";
 import { Vector3 } from "@galacean/engine-math";
-import { WebGLEngine } from "@galacean/engine";
+import { WebGLEngine } from "@galacean/engine-rhi-webgl";
 import { PhysXPhysics } from "@galacean/engine-physics-physx";
 import { describe, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
@@ -181,6 +181,57 @@ describe("MeshColliderShape PhysX", () => {
       entity.destroy();
       defaultMaterial?.destroy();
       material?.destroy();
+    });
+
+    it("R6: cloned MeshColliderShape rebuilds its native PhysX shape", async () => {
+      // RED verification for R6 fix:
+      //   MeshColliderShape's `_nativeShape` is `@ignoreClone` — without an
+      //   override of `_cloneTo` cooking a fresh shape from cloned vertex/index
+      //   buffers, the cloned entity has no physical surface (sphere falls
+      //   straight through).
+      const groundEntity = root.createChild("meshGroundForClone");
+      groundEntity.transform.setPosition(0, 0, 0);
+      const groundCollider = groundEntity.addComponent(StaticCollider);
+      const meshShape = new MeshColliderShape();
+      const meshMaterial = meshShape.material;
+      const mesh = createModelMesh(engine, [-10, 0, -10, 10, 0, -10, -10, 0, 10, 10, 0, 10], [0, 2, 1, 1, 2, 3]);
+      meshShape.mesh = mesh;
+      groundCollider.addShape(meshShape);
+
+      const clonedGround = groundEntity.clone();
+      // Move the original aside so the cloned ground is the only surface below the sphere.
+      groundEntity.transform.setPosition(1000, 0, 0);
+      root.addChild(clonedGround);
+      clonedGround.transform.setPosition(0, 0, 0);
+
+      const clonedShape = clonedGround.getComponent(StaticCollider).shapes[0] as MeshColliderShape;
+      // @ts-ignore — inspect that the cloned shape actually has a usable native PhysX handle
+      expect(clonedShape._nativeShape).not.toBeNull();
+      // @ts-ignore
+      expect(clonedShape._nativeShape._pxShape).toBeDefined();
+
+      const sphereEntity = root.createChild("sphereForClone");
+      sphereEntity.transform.setPosition(0, 2, 0);
+      const dynamicCollider = sphereEntity.addComponent(DynamicCollider);
+      const sphereShape = new SphereColliderShape();
+      const sphereMaterial = sphereShape.material;
+      sphereShape.radius = 0.5;
+      dynamicCollider.addShape(sphereShape);
+
+      for (let i = 0; i < 60; i++) {
+        physicsScene._update(1 / 60);
+      }
+
+      // Sphere lands on cloned ground (y > -1), not falls forever (y < -10).
+      const sphereY = sphereEntity.transform.position.y;
+      expect(sphereY).toBeGreaterThan(-1);
+      expect(sphereY).toBeLessThan(2);
+
+      groundEntity.destroy();
+      clonedGround.destroy();
+      sphereEntity.destroy();
+      meshMaterial?.destroy();
+      sphereMaterial?.destroy();
     });
   });
 
