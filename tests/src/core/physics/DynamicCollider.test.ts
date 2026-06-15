@@ -477,55 +477,36 @@ describe("DynamicCollider", function () {
     expect(formatValue(boxCollider.linearVelocity.x)).eq(0.01667);
   });
 
-  it("fixedTimeStep 1/60 vs 1/480: PhysX applyForce delivers 8x smaller dv at finer step", function () {
-    // ultrathink probe: does cocos-style `fixedTimeStep(true)→1/480` actually give
-    // *more force* than `fixedTimeStep(false)→1/60` in PhysX?
-    //
-    // Theory:
-    //   Bullet (Cocos): clearForces runs ONCE after all substeps → dv = F·frame_dt/m
-    //     → substep count doesn't affect dv.
-    //   PhysX (Galacean): force cleared per simulate() call → only the first substep
-    //     in a frame applies the force → dv = F·fixedTimeStep/m
-    //     → 1/480 gives dv 8x smaller than 1/60.
-    //
-    // This test confirms the PhysX behavior empirically and quantifies the gap.
+  it("applyForce is consumed by the first fixed substep in a frame", function () {
     const scene = engine.sceneManager.activeScene;
     const originalFTS = scene.physics.fixedTimeStep;
+    let dv_1_60 = 0;
+    let dv_1_480 = 0;
 
-    const probe = (fts: number) => {
-      rootEntity.clearChildren();
-      scene.physics.fixedTimeStep = fts;
-      const box = addBox(new Vector3(2, 2, 2), DynamicCollider, new Vector3(0, 0, 0));
-      const c = box.getComponent(DynamicCollider);
-      c.mass = 1;
-      c.useGravity = false;
-      c.linearDamping = 0;
-      c.angularDamping = 0;
-      c.applyForce(new Vector3(100, 0, 0));
-      // Advance exactly one *frame* of wall time. Galacean's _update loops simulate
-      // until frame_dt accumulates: 1/60 → 1 substep; 1/480 → 8 substeps.
-      // @ts-ignore
-      scene.physics._update(1 / 60);
-      return c.linearVelocity.x;
-    };
+    try {
+      const probe = (fts: number) => {
+        rootEntity.clearChildren();
+        scene.physics.fixedTimeStep = fts;
+        const box = addBox(new Vector3(2, 2, 2), DynamicCollider, new Vector3(0, 0, 0));
+        const c = box.getComponent(DynamicCollider);
+        c.mass = 1;
+        c.useGravity = false;
+        c.linearDamping = 0;
+        c.angularDamping = 0;
+        c.applyForce(new Vector3(100, 0, 0));
+        // @ts-ignore
+        scene.physics._update(1 / 60);
+        return c.linearVelocity.x;
+      };
 
-    const dv_1_60 = probe(1 / 60);
-    const dv_1_480 = probe(1 / 480);
+      dv_1_60 = probe(1 / 60);
+      dv_1_480 = probe(1 / 480);
+    } finally {
+      scene.physics.fixedTimeStep = originalFTS;
+    }
 
-    console.info(
-      `[fixedTimeStep probe] applyForce(F=100) over 1 frame (1/60s):\n` +
-        `  1/60  step → dv = ${dv_1_60.toFixed(4)} m/s\n` +
-        `  1/480 step → dv = ${dv_1_480.toFixed(4)} m/s\n` +
-        `  ratio (1/60 / 1/480) = ${(dv_1_60 / dv_1_480).toFixed(3)}  (theory: 8)`
-    );
-
-    scene.physics.fixedTimeStep = originalFTS;
-
-    // Theory: dv_1_60 = F·(1/60)/m = 100/60 ≈ 1.667
     expect(dv_1_60).toBeCloseTo(100 / 60, 2);
-    // Theory: dv_1_480 = F·(1/480)/m = 100/480 ≈ 0.208
     expect(dv_1_480).toBeCloseTo(100 / 480, 2);
-    // Ratio must be 8 (PhysX clears force per simulate)
     expect(dv_1_60 / dv_1_480).toBeCloseTo(8, 1);
   });
 
@@ -735,11 +716,7 @@ describe("DynamicCollider", function () {
     ).toBeTruthy();
   });
 
-  it("R0: CCD mode survives kinematic toggle (PhysX rejects CCD on kinematic)", function () {
-    // RED verification for R0 fix:
-    //   PhysX 4.1.1 forbids CCD on kinematic actors. The fix caches the user-intended mode
-    //   and re-applies on kinematic→dynamic. Without the fix, switching to kinematic loses
-    //   the CCD flag and a subsequent dynamic switch does not restore it.
+  it("CCD mode survives kinematic toggle", function () {
     const box = addBox(new Vector3(2, 2, 2), DynamicCollider, new Vector3(0, 0, 0));
     const boxCollider = box.getComponent(DynamicCollider);
     // @ts-ignore
@@ -759,9 +736,7 @@ describe("DynamicCollider", function () {
     expect(boxCollider.collisionDetectionMode).toEqual(CollisionDetectionMode.Continuous);
   });
 
-  it("R0: setCollisionDetectionMode in kinematic state defers application", function () {
-    // RED verification: while kinematic, the CCD flag should not be touched (PhysX warns).
-    // User's intent is cached and applied on next dynamic switch.
+  it("setCollisionDetectionMode in kinematic state defers native CCD flag application", function () {
     const box = addBox(new Vector3(2, 2, 2), DynamicCollider, new Vector3(0, 0, 0));
     const boxCollider = box.getComponent(DynamicCollider);
     // @ts-ignore

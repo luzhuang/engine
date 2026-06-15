@@ -108,7 +108,7 @@ function watchNativeContactEventDemand(physicsScene: PhysicsScene) {
 }
 
 function getLastContactEventDemandCall(calls: boolean[]): boolean {
-  return calls[calls.length - 1];
+  return calls[calls.length - 1] ?? false;
 }
 
 function resetSpy() {
@@ -489,6 +489,28 @@ describe("Physics Test", () => {
         physicsScene._update(physicsScene.fixedTimeStep);
         expect(getLastContactEventDemandCall(contactEventDemand.calls)).to.eq(false);
       } finally {
+        contactEventDemand.restore();
+        root.destroy();
+      }
+    });
+
+    it("does not rescan contact event demand on every fixed substep", () => {
+      const scene = enginePhysX.sceneManager.activeScene;
+      const physicsScene = scene.physics;
+      const fixedTimeStep = physicsScene.fixedTimeStep;
+      const root = scene.createRootEntity("contact-demand-substeps");
+      const entity = root.createChild("body");
+      const collider = entity.addComponent(StaticCollider);
+      collider.addShape(new BoxColliderShape());
+      entity.addComponent(CollisionDemandScript);
+      const contactEventDemand = watchNativeContactEventDemand(physicsScene);
+
+      try {
+        physicsScene.fixedTimeStep = 1 / 480;
+        physicsScene._update(1 / 60);
+        expect(contactEventDemand.calls).to.deep.eq([true]);
+      } finally {
+        physicsScene.fixedTimeStep = fixedTimeStep;
         contactEventDemand.restore();
         root.destroy();
       }

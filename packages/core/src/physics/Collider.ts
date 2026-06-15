@@ -38,6 +38,8 @@ export class Collider extends Component implements ICustomClone {
    */
   @ignoreClone
   private _pendingReenterTeleport: boolean = false;
+  @ignoreClone
+  private _enteredScene: boolean = false;
 
   /**
    * The shapes of this collider.
@@ -154,7 +156,10 @@ export class Collider extends Component implements ICustomClone {
    */
   override _onEnableInScene(): void {
     this.scene.physics._addCollider(this);
-    this._pendingReenterTeleport = true;
+    if (this._enteredScene) {
+      this._pendingReenterTeleport = true;
+    }
+    this._enteredScene = true;
   }
 
   /**

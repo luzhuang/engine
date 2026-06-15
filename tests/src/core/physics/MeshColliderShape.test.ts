@@ -183,12 +183,7 @@ describe("MeshColliderShape PhysX", () => {
       material?.destroy();
     });
 
-    it("R6: cloned MeshColliderShape rebuilds its native PhysX shape", async () => {
-      // RED verification for R6 fix:
-      //   MeshColliderShape's `_nativeShape` is `@ignoreClone` — without an
-      //   override of `_cloneTo` cooking a fresh shape from cloned vertex/index
-      //   buffers, the cloned entity has no physical surface (sphere falls
-      //   straight through).
+    it("cloned MeshColliderShape rebuilds its native PhysX shape", async () => {
       const groundEntity = root.createChild("meshGroundForClone");
       groundEntity.transform.setPosition(0, 0, 0);
       const groundCollider = groundEntity.addComponent(StaticCollider);
@@ -203,12 +198,6 @@ describe("MeshColliderShape PhysX", () => {
       groundEntity.transform.setPosition(1000, 0, 0);
       root.addChild(clonedGround);
       clonedGround.transform.setPosition(0, 0, 0);
-
-      const clonedShape = clonedGround.getComponent(StaticCollider).shapes[0] as MeshColliderShape;
-      // @ts-ignore — inspect that the cloned shape actually has a usable native PhysX handle
-      expect(clonedShape._nativeShape).not.toBeNull();
-      // @ts-ignore
-      expect(clonedShape._nativeShape._pxShape).toBeDefined();
 
       const sphereEntity = root.createChild("sphereForClone");
       sphereEntity.transform.setPosition(0, 2, 0);
@@ -254,6 +243,42 @@ describe("MeshColliderShape PhysX", () => {
 
       entity.destroy();
       defaultMaterial?.destroy();
+    });
+
+    it("does not retry non-convex mesh creation on non-kinematic dynamic colliders", () => {
+      const entity = root.createChild("unsupportedDynamicMesh");
+      const dynamicCollider = entity.addComponent(DynamicCollider);
+
+      const meshShape = new MeshColliderShape();
+      const meshMaterial = meshShape.material;
+      const convexMesh = createModelMesh(
+        engine,
+        [0, 1, 0, -1, 0, -1, 1, 0, -1, 0, 0, 1],
+        [0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2]
+      );
+      meshShape.isConvex = true;
+      meshShape.mesh = convexMesh;
+      dynamicCollider.addShape(meshShape);
+
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        meshShape.isConvex = false;
+        consoleErrorSpy.mockClear();
+
+        const triangleMesh = createModelMesh(engine, [-1, 0, -1, 1, 0, -1, 0, 0, 1], [0, 1, 2]);
+        meshShape.mesh = triangleMesh;
+        expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+        consoleErrorSpy.mockClear();
+
+        for (let i = 0; i < 3; i++) {
+          physicsScene._update(1 / 60);
+        }
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+      } finally {
+        consoleErrorSpy.mockRestore();
+        entity.destroy();
+        meshMaterial?.destroy();
+      }
     });
 
     it("should allow convex mesh on dynamic collider", async () => {

@@ -17,9 +17,8 @@ export class MeshColliderShape extends ColliderShape {
   private _cookingFlags = MeshColliderShapeCookingFlag.Cleaning | MeshColliderShapeCookingFlag.VertexWelding;
   private _isShapeAttached = false;
   /**
-   * `true` if a native shape creation was attempted but failed (mesh data not yet
-   * accessible, PhysX cooking transient failure, etc.). The `_onPhysicsUpdate` hook
-   * will keep retrying every frame until creation succeeds.
+   * `true` if PhysX cooking returned null after valid mesh data was extracted.
+   * Unsupported collider/mesh combinations are terminal and must not enter retry.
    */
   private _pendingNativeShapeCreation = false;
 
@@ -87,13 +86,11 @@ export class MeshColliderShape extends ColliderShape {
           } else {
             this._createNativeShape();
           }
-          // _createNativeShape can fail silently (cookMesh transient failure); mark pending if so
-          this._pendingNativeShapeCreation = !this._nativeShape;
         } else {
-          // Mesh not yet accessible — keep pending so `_onPhysicsUpdate` retries later
+          // Mesh data extraction cannot recover without assigning a new mesh.
           this._destroyNativeShape();
           this._clearMeshData();
-          this._pendingNativeShapeCreation = true;
+          this._pendingNativeShapeCreation = false;
         }
       } else {
         this._destroyNativeShape();
@@ -199,6 +196,7 @@ export class MeshColliderShape extends ColliderShape {
   private _createNativeShape(): void {
     // Non-convex MeshColliderShape is only supported on StaticCollider or kinematic DynamicCollider
     if (!this._isConvex && this._collider instanceof DynamicCollider && !this._collider.isKinematic) {
+      this._pendingNativeShapeCreation = false;
       console.error("MeshColliderShape: Non-convex mesh is not supported on non-kinematic DynamicCollider.");
       return;
     }
