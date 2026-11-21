@@ -7,6 +7,12 @@ label: Physics
 
 形状投射（Shape Casting）是物理引擎中的高级查询功能，可以沿指定方向"投射"一个三维形状来检测阻挡。与 [射线检测](/docs/physics/query/raycast) 使用无限细的线不同，形状投射使用具有体积的几何体进行检测，能够提供更精确和实用的阻挡信息。
 
+用 `boxCastAll`、`sphereCastAll` 或 `capsuleCastAll` 将所有正距离命中写入可复用的 `HitResult[]`。返回顺序未定义。
+
+向投射查询传入 `{ hitBackfaces: true }`，可命中三角网格背面。`HitResult.triangleIndex` 返回原始网格的三角形索引，无三角形索引时返回 `-1`。
+
+`collider.getBounds(out)` 写入同步后的世界空间包围盒。`collider.computePenetration(other, outDirection)` 返回穿透深度，并写入把当前碰撞体移出另一碰撞体的方向。投射起点已重叠时，使用重叠或穿透查询。
+
 ## 概述
 
 Galacean 物理引擎提供三种形状投射功能：
@@ -48,6 +54,16 @@ boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: num
 // 指定距离并获取命中信息
 boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// 使用默认朝向并过滤命中结果
+boxCast(
+  center: Vector3,
+  halfExtents: Vector3,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // 完整参数版本
 boxCast(
   center: Vector3, 
@@ -55,7 +71,7 @@ boxCast(
   direction: Vector3, 
   orientation: Quaternion, 
   distance: number, 
-  layerMask: Layer, 
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -140,7 +156,7 @@ sphereCast(
   radius: number, 
   direction: Vector3,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -179,6 +195,16 @@ capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3,
 // 指定距离并获取命中信息
 capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// 使用默认朝向并过滤命中结果
+capsuleCast(
+  center: Vector3,
+  radius: number,\n  height: number,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // 完整参数版本
 capsuleCast(
   center: Vector3,
@@ -187,7 +213,7 @@ capsuleCast(
   direction: Vector3,
   orientation: Quaternion,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -199,7 +225,6 @@ capsuleCast(
 const characterCenter = new Vector3(0, 1, 0);
 const characterRadius = 0.5;
 const characterHeight = 1.8;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const jumpDirection = new Vector3(0, 1, 0);
 const jumpHeight = 2.0;
 
@@ -208,7 +233,6 @@ const jumpBlocked = physicsScene.capsuleCast(
   characterRadius,
   characterHeight,
   jumpDirection,
-  upright,
   jumpHeight,
   Layer.Everything
 );
@@ -227,7 +251,6 @@ if (physicsScene.capsuleCast(
   characterRadius, 
   characterHeight, 
   moveDirection, 
-  upright,
   stepDistance, 
   Layer.Everything,
   moveHit
@@ -242,16 +265,16 @@ if (physicsScene.capsuleCast(
 ### 通用参数
 
 - **center** - 形状的中心位置（世界坐标）
-- **direction** - 投射方向（必须为单位向量）
+- **direction** - 非零且有限的投射方向，场景会归一化该向量
 - **distance** - 投射距离（默认为 `Number.MAX_VALUE`）
-- **layerMask** - 层遮罩，用于过滤特定层的碰撞器（默认为 `Layer.Everything`）
+- **layerMask** - 碰撞层掩码或 `PhysicsQueryFilter`（默认为 `Layer.Everything`）
 - **outHitResult** - 输出的命中结果信息（可选）
 
 ### 形状特定参数
 
 - **halfExtents** (boxCast) - 盒子的半尺寸
 - **radius** (sphereCast/capsuleCast) - 球体/胶囊的半径
-- **height** (capsuleCast) - 胶囊总高（世界单位），包含两端半球。高度小于或等于两倍半径时返回 `false`。球形投射请使用 `sphereCast`。
+- **height** (capsuleCast) - 胶囊总高（世界单位），包含两端半球，默认长轴沿 Y。高度小于或等于两倍半径时返回 `false`。球形投射请使用 `sphereCast`。
 - **orientation** (boxCast/capsuleCast) - 形状的旋转（默认为无旋转）
 
 ## 性能优化建议
@@ -265,7 +288,6 @@ if (physicsScene.capsuleCast(
 // 性能优化示例
 class PhysicsQuery {
   private static readonly _hitResult = new HitResult();
-  private static readonly _upright = new Quaternion().rotateZ(Math.PI / 2);
   private static readonly _playerLayerMask = Layer.Layer0 | Layer.Layer1;
   
   static checkPlayerMovement(center: Vector3, direction: Vector3): boolean {
@@ -274,7 +296,6 @@ class PhysicsQuery {
       0.5,           // 固定半径
       1.8,           // 总高
       direction,
-      this._upright,
       2.0,           // 限制检测距离
       this._playerLayerMask,  // 只检测相关层
       this._hitResult         // 重用结果对象

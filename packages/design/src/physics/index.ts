@@ -3,7 +3,7 @@ export type { ICollider } from "./ICollider";
 export type { IDynamicCollider } from "./IDynamicCollider";
 export type { IPhysics } from "./IPhysics";
 export type { IPhysicsMaterial, IPhysicsMaterialProperties } from "./IPhysicsMaterial";
-export type { IPhysicsScene } from "./IPhysicsScene";
+export type { IPhysicsQueryFilter, IPhysicsQueryHit, IPhysicsScene, PhysicsSceneOptions } from "./IPhysicsScene";
 export type { IStaticCollider } from "./IStaticCollider";
 export type { ICollision } from "./ICollision";
 export type { IContactEvent, ITriggerEvent, IPhysicsEvents } from "./IPhysicsEvents";

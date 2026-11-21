@@ -219,10 +219,10 @@ export class ComponentsManager {
     );
   }
 
-  callScriptOnPhysicsUpdate(): void {
+  callScriptOnPhysicsUpdate(deltaTime: number): void {
     this._onPhysicsUpdateScripts.forEach(
       (element: Script) => {
-        element._started && element.onPhysicsUpdate();
+        element._started && element.onPhysicsUpdate(deltaTime);
       },
       (element: Script, index: number) => {
         element._onPhysicsUpdateIndex = index;

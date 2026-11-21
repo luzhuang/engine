@@ -1,3 +1,4 @@
+export type { PhysicsSceneOptions } from "@galacean/engine-design";
 export { BoxCollider } from "./BoxCollider";
 export { CapsuleCollider } from "./CapsuleCollider";
 export { CharacterController } from "./CharacterController";
@@ -6,7 +7,9 @@ export { Collision } from "./Collision";
 export { ContactPoint } from "./ContactPoint";
 export { HitResult } from "./HitResult";
 export { MeshCollider } from "./MeshCollider";
+export { PhysicsDebugFlags, PhysicsDebugLines } from "./PhysicsDebugLines";
 export { PhysicsMaterial } from "./PhysicsMaterial";
+export type { PhysicsQueryFilter } from "./PhysicsScene";
 export { PhysicsScene } from "./PhysicsScene";
 export { PlaneCollider } from "./PlaneCollider";
 export { ForceMode, Rigidbody, RigidbodyConstraints } from "./Rigidbody";

@@ -360,6 +360,13 @@ export class CharacterController extends Collider {
     }
   }
 
+  /** @internal */
+  override _adoptShiftedPose(): void {
+    if (this._inScene) {
+      this._nativePosition.copyFrom(this.entity.transform.worldPosition);
+    }
+  }
+
   private _createNative(): ICharacterController {
     const controller = Engine._nativePhysics.createCharacterController(this._id, this._getNativeMaterial());
     controller.setContactOffset(this.contactOffset);

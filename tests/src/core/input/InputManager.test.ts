@@ -3,6 +3,7 @@ import {
   BoxCollider,
   Camera,
   Keys,
+  Layer,
   PointerButton,
   PointerEventData,
   PointerPhase,
@@ -78,11 +79,23 @@ describe("InputManager", async () => {
     const cameraEntity = root.createChild("camera");
     cameraEntity.transform.setPosition(0, 0, 10);
     cameraEntity.transform.lookAt(new Vector3());
-    cameraEntity.addComponent(Camera);
+    cameraEntity.addComponent(Camera).cullingMask = Layer.Layer0;
 
     const boxEntity = root.createChild("box");
     const collider = boxEntity.addComponent(BoxCollider);
+    collider.collisionLayer = Layer.Layer31;
     collider.size = new Vector3(10, 10, 10);
+
+    const hidden = root.createChild("hidden foreground box");
+    hidden.layer = Layer.Layer1;
+    hidden.transform.setPosition(0, 0, 8);
+    hidden.addComponent(BoxCollider).size.set(5, 5, 1);
+
+    const trigger = root.createChild("foreground trigger");
+    trigger.transform.setPosition(0, 0, 7);
+    const triggerCollider = trigger.addComponent(BoxCollider);
+    triggerCollider.size.set(5, 5, 1);
+    triggerCollider.isTrigger = true;
 
     class TestScript extends Script {
       onPointerEnter(eventData: PointerEventData): void {
@@ -165,6 +178,8 @@ describe("InputManager", async () => {
     expect(deltaPosition).deep.equal(new Vector2(0, 0));
     target.dispatchEvent(generatePointerEvent("pointerleave", 4, 0, 0));
     engine.update();
+    hidden.destroy();
+    trigger.destroy();
   });
 
   it("keyboard", () => {

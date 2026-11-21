@@ -993,6 +993,11 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     this._nativeRotation.copyFrom(rotationChanged ? transform.worldRotationQuaternion : worldRotation);
   }
 
+  /** @internal Rebases the pose submitted to physics. */
+  _adoptShiftedPose(): void {
+    this._nativePosition.copyFrom(this.entity.transform.worldPosition);
+  }
+
   /**
    * @internal
    * Commit an authored mass change and recompute automatic properties when attached geometry has volume.

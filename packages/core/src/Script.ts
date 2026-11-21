@@ -79,9 +79,10 @@ export class Script extends Component {
   onEndRender(camera: Camera): void {}
 
   /**
-   * Called before physics calculations, the number of times is related to the physical update frequency.
+   * Called before each physics step.
+   * @param deltaTime - Duration of this physics step in seconds.
    */
-  onPhysicsUpdate(): void {}
+  onPhysicsUpdate(deltaTime: number): void {}
 
   /**
    * Called when a trigger overlap begins.

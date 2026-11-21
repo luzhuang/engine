@@ -14,6 +14,8 @@ export class HitResult {
   point: Vector3 = new Vector3();
   /** The surface normal at the impact point, in world space. */
   normal: Vector3 = new Vector3();
+  /** The triangle index on a mesh or heightfield, or -1 for other geometry. */
+  triangleIndex: number = -1;
   /** The collider that was hit. */
   collider: Collider | null = null;
 }

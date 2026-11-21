@@ -3,7 +3,7 @@ import { ICharacterController } from "./ICharacterController";
 import { ICollider } from "./ICollider";
 import { IDynamicCollider } from "./IDynamicCollider";
 import { IPhysicsMaterial, IPhysicsMaterialProperties } from "./IPhysicsMaterial";
-import { IPhysicsScene } from "./IPhysicsScene";
+import { IPhysicsScene, PhysicsSceneOptions } from "./IPhysicsScene";
 import { IStaticCollider } from "./IStaticCollider";
 import { IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
 import {
@@ -27,7 +27,7 @@ export interface IPhysics {
   /**
    * Create a native simulation scene.
    */
-  createPhysicsScene(): IPhysicsScene;
+  createPhysicsScene(options?: PhysicsSceneOptions): IPhysicsScene;
 
   /**
    * Create dynamic collider.

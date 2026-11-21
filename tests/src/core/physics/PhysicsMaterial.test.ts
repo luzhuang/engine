@@ -169,6 +169,20 @@ describe("PhysicsMaterial", () => {
     expect(createMaterial).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves valid material coefficients when an invalid write is rejected", () => {
+    const material = rootEntity.createChild().addComponent(BoxCollider).getInstanceMaterial();
+    material.bounciness = 1;
+    expect(() => (material.bounciness = 2)).toThrow(RangeError);
+    expect(material.bounciness).toBe(1);
+
+    for (const property of ["staticFriction", "dynamicFriction"] as const) {
+      material[property] = 1.5;
+      expect(() => (material[property] = -1)).toThrow(RangeError);
+      expect(() => (material[property] = Number.MAX_VALUE)).toThrow(RangeError);
+      expect(material[property]).toBe(1.5);
+    }
+  });
+
   it("shares assigned materials and clones all properties only for an explicit instance", () => {
     const collider = rootEntity.createChild().addComponent(BoxCollider);
     const other = rootEntity.createChild().addComponent(BoxCollider);

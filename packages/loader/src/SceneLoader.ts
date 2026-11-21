@@ -15,13 +15,14 @@ import {
   Scene,
   Texture2D
 } from "@galacean/engine-core";
+import type { PhysicsMaterial } from "@galacean/engine-core";
 import { resolveRefItem } from "./schema/refs";
 import type { RefItem } from "./schema/CommonSchema";
 import type { SceneFile } from "./schema/SceneSchema";
 import { ParserContext, ParserType, SceneParser } from "./resource-deserialize";
 
 /**
- * Apply scene-level data (ambient, background, shadow, fog, AO) to a Scene.
+ * Applies scene settings and resolves their asset references.
  * @internal
  */
 export async function applySceneData(
@@ -113,6 +114,12 @@ export async function applySceneData(
     );
   };
   try {
+    const defaultMaterial = sceneData.physics?.defaultMaterial;
+    if (defaultMaterial != null) {
+      applyRef<PhysicsMaterial>(defaultMaterial, "scene.physics.defaultMaterial", (material) => {
+        scene.physics.defaultMaterial = material;
+      });
+    }
     if (ambient?.ambientLight != null) {
       applyRef<AmbientLight>(ambient.ambientLight, "scene.ambient.ambientLight", (resource) => {
         if (!resource) return;

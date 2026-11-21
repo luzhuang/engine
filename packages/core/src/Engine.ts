@@ -1,4 +1,4 @@
-import { IInputOptions, IPhysics, IShaderCompiler, IXRDevice } from "@galacean/engine-design";
+import { IInputOptions, IPhysics, IShaderCompiler, IXRDevice, PhysicsSceneOptions } from "@galacean/engine-design";
 import { CharRenderInfo } from "./2d/text/CharRenderInfo";
 import { Font } from "./2d/text/Font";
 import { BasicResources } from "./BasicResources";
@@ -343,7 +343,8 @@ export class Engine extends EventDispatcher {
         for (let i = 0; i < sceneCount; i++) {
           const scene = scenes[i];
           if (!scene.isActive || scene.destroyed) continue;
-          scene.physics._update(deltaTime);
+          const physics = scene.physics;
+          if (physics.autoSimulation) physics._update(deltaTime, physics.maxSubSteps);
         }
       }
 
@@ -706,7 +707,7 @@ export class Engine extends EventDispatcher {
 
     initializePromises.push(this._basicResources._initialize());
     return Promise.all(initializePromises).then(() => {
-      this.sceneManager.addScene(new Scene(this, "DefaultScene"));
+      this.sceneManager.addScene(new Scene(this, "DefaultScene", configuration.physicsScene));
       return this;
     });
   }
@@ -777,6 +778,8 @@ export class Engine extends EventDispatcher {
 export interface EngineConfiguration {
   /** Physics. */
   physics?: IPhysics;
+  /** Options for the default scene’s physics simulation. */
+  physicsScene?: PhysicsSceneOptions;
   /** XR Device. */
   xrDevice?: IXRDevice;
   /** Shader compiler. */

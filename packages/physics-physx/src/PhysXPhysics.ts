@@ -10,6 +10,7 @@ import {
   IPhysics,
   IPhysicsMaterialProperties,
   IPhysicsScene,
+  PhysicsSceneOptions,
   IPlaneColliderShape,
   ISphereColliderShape,
   ISpringJoint,
@@ -88,9 +89,8 @@ export class PhysXPhysics implements IPhysics {
   /**
    * {@inheritDoc IPhysics.createPhysicsScene }
    */
-  createPhysicsScene(): IPhysicsScene {
-    const scene = new PhysXPhysicsScene(this);
-    return scene;
+  createPhysicsScene(options?: PhysicsSceneOptions): IPhysicsScene {
+    return new PhysXPhysicsScene(this, options);
   }
 
   /**

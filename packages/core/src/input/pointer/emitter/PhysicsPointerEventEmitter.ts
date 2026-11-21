@@ -1,7 +1,7 @@
 import { Entity } from "../../../Entity";
 import { Scene } from "../../../Scene";
 import { CameraClearFlags } from "../../../enums/CameraClearFlags";
-import { HitResult } from "../../../physics";
+import { HitResult, PhysicsQueryFilter } from "../../../physics";
 import { Pointer } from "../Pointer";
 import { PointerEventEmitter } from "./PointerEventEmitter";
 
@@ -12,12 +12,14 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
   protected _enteredEntity: Entity | null;
   protected _pressedEntity: Entity | null;
   protected _draggedEntity: Entity | null;
+  private _hits?: HitResult[];
+  private readonly _queryFilter: PhysicsQueryFilter = { includeTriggers: false };
 
   override processRaycast(scenes: readonly Scene[], pointer: Pointer): void {
     const { _tempRay: ray } = PointerEventEmitter;
     const { position } = pointer;
     const { x, y } = position;
-    const hitResult = this._hitResult;
+    const hitResult = this._hitResult as HitResult;
     for (let i = scenes.length - 1; i >= 0; i--) {
       const scene = scenes[i];
       if (!scene.isActive || scene.destroyed) {
@@ -28,7 +30,7 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
       for (let j = cameras.length - 1; j >= 0; j--) {
         const camera = cameras.get(j);
         if (camera.renderTarget) continue;
-        const { pixelViewport } = camera;
+        const { pixelViewport, cullingMask, farClipPlane, clearFlags } = camera;
         if (
           x < pixelViewport.x ||
           y < pixelViewport.y ||
@@ -37,12 +39,29 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
         ) {
           continue;
         }
-        camera.screenPointToRay(pointer.position, ray);
-        if (scenePhysics.raycast(ray, camera.farClipPlane, camera.cullingMask, <HitResult>hitResult)) {
-          this._updateRaycast(hitResult.entity, pointer);
-          return;
+        camera.screenPointToRay(position, ray);
+        if (scenePhysics.raycast(ray, farClipPlane, this._queryFilter, hitResult)) {
+          let closest: HitResult | undefined;
+          if (hitResult.entity!.layer & cullingMask) {
+            closest = hitResult;
+          } else {
+            const hits = (this._hits ||= []);
+            scenePhysics.raycastAll(ray, farClipPlane, this._queryFilter, hits);
+            for (let k = 0; k < hits.length; k++) {
+              const hit = hits[k];
+              if (hit.entity!.layer & cullingMask && (!closest || hit.distance < closest.distance)) {
+                closest = hit;
+              }
+            }
+          }
+          if (closest) {
+            hitResult.point.copyFrom(closest.point);
+            this._updateRaycast(closest.entity, pointer);
+            return;
+          }
         }
-        if (camera.clearFlags & CameraClearFlags.Color) {
+        hitResult.point.set(0, 0, 0);
+        if (clearFlags & CameraClearFlags.Color) {
           this._updateRaycast(null, pointer);
           return;
         }
@@ -98,6 +117,7 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
 
   override dispose(): void {
     this._enteredEntity = this._pressedEntity = this._draggedEntity = null;
+    this._hits = undefined;
   }
 
   protected override _init(): void {

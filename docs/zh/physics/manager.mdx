@@ -7,6 +7,10 @@ label: Physics
 
 物理场景（[PhysicsScene](/apis/core/#PhysicsScene)）用于管理场景中所有的物理组件，并且负责与物理后端通信，实现有关物理场景的全局操作，例如更新和射线检测等等。在多场景项目中，每个[Scene](/apis/core/Scene)都有自己的物理场景，Scene之间的物理系统是相互隔离互不影响的。
 
+## 默认材质
+
+设置 `scene.physics.defaultMaterial` 可以让场景内的碰撞体共享一个 PhysicsMaterial。碰撞体显式指定的材质优先。将场景默认材质设为 `null` 时使用引擎内置材质。
+
 ## 物理更新
 
 物理场景和渲染场景相互独立，但在程序运行过程中不断同步各自的数据。因此，和[脚本](/docs/script/script)一样，同步的时序也非常重要。物理场景的更新频率和渲染场景不同，通过以下参数进行控制：
@@ -17,11 +21,9 @@ fixedTimeStep: number = 1 / 60;
 
 ### 更新机制
 
-- 每个渲染帧中,物理引擎会按照固定时间步长 [fixedTimeStep](/apis/core/#PhysicsScene-fixedTimeStep) 进行更新
-- 如果实际帧间隔大于 `fixedTimeStep`:
-  - 会执行多次物理更新直到追赶上实际时间
-  - 单帧最大更新时间由 `engine.time.maximumDeltaTime` 限制
-- 如果实际帧间隔小于 `fixedTimeStep`,则累积到下一帧处理
+引擎单次更新最多执行 `scene.physics.maxSubSteps` 个固定步（默认 8）。超出的整步会被丢弃，不足一步的时间保留到下一帧。
+
+将 `scene.physics.autoSimulation` 设为 `false` 后，可以手动驱动活动场景。调用 `scene.physics.step()` 执行一个固定步，也可以调用 `scene.physics.step(seconds)` 指定本步时长。
 
 ### 物理更新回调
 
@@ -31,7 +33,7 @@ export class Script extends Component {
   /**
    * 在物理计算前调用,调用次数取决于物理更新频率
    */
-  onPhysicsUpdate(): void {}
+  onPhysicsUpdate(deltaTime: number): void {}
 }
 ```
 
@@ -48,6 +50,8 @@ export class Script extends Component {
 4. 将所有已启用[刚体](/docs/physics/collider/rigidbody)模拟后的位姿写回对应的 `实体`
 5. 派发碰撞和触发器事件
 
+创建场景时可传入 `new Scene(engine, name, { solver: "tgs", contactPairs: "all", bounceThreshold: 2 })`。要配置默认场景，可在创建 Engine 时传入同样的 `physicsScene` 选项。默认使用 PGS 求解器和普通动态接触对，反弹阈值为每秒 2 个世界单位。
+
 ## 设置场景重力
 
 物理场景允许自定义重力方向和大小。重力会影响场景中所有启用重力的[刚体](/docs/physics/collider/rigidbody)。
@@ -63,6 +67,10 @@ scene.physics.gravity.set(0, 0, 0);
 scene.physics.gravity.set(0, -9.81, 0);
 ```
 
+## 平移物理原点
+
+等物理步、角色控制器移动及相关回调结束后，调用 `scene.physics.shiftOrigin(offset)`，可让当前场景根节点和 PhysX 状态的世界坐标减去同一偏移。刚体速度、已排队的运动学目标和子节点局部位姿保持连续。外部世界坐标数据应使用平移后的坐标，根节点位置动画、已有世界空间粒子和拖尾还需应用侧协调。
+
 ## 空间查询功能
 
 物理场景提供了多种空间查询功能，用于检测和分析场景中物体的空间关系：
@@ -70,4 +78,8 @@ scene.physics.gravity.set(0, -9.81, 0);
 - **[射线检测](/docs/physics/query/raycast)** - 精确的点对点检测，适用于拾取、瞄准等场景
 - **[形状投射](/docs/physics/query/sweep)** - 沿方向投射几何体，适用于移动预测、路径规划
 - **[重叠检测](/docs/physics/query/overlap)** - 检测区域内的重叠物体，适用于触发器、范围攻击
+
+场景查询默认包含触发器。传入 `{ includeTriggers: false }` 可跳过触发器，同一选项还接受碰撞层掩码 `layerMask` 和要排除的碰撞器列表 `exclude`。将 `collider.isSceneQuery` 设为 `false` 可使该碰撞器退出所有场景查询。
+
+碰撞层规则由各自的 `scene.physics` 管理，更新只作用于该场景，并应用到已经接触的碰撞对。
 

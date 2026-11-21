@@ -9,13 +9,21 @@ label: Physics
 
 ## 概述
 
-Galacean 物理引擎提供三种重叠检测功能：
+Galacean 物理引擎支持盒子、球体和胶囊重叠查询：
 
 - **overlapBoxAll** - 盒子重叠：检测与立方体区域重叠的所有碰撞器
 - **overlapSphereAll** - 球体重叠：检测与球形区域重叠的所有碰撞器
 - **overlapCapsuleAll** - 胶囊重叠：检测与胶囊区域重叠的所有碰撞器
 
 <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*VDrBSajmuW8AAAAAWeAAAAgAesJ_AQ/original" />
+
+## 检查区域是否被占用
+
+只需判断有无重叠时，使用 `checkBox`、`checkSphere` 或 `checkCapsule`。形状尺寸、世界空间旋转和过滤条件与对应的 `overlap*All` 方法一致。查询在找到第一个符合条件的碰撞器时结束，返回布尔值。
+
+```typescript
+const occupied = physicsScene.checkBox(buildCenter, buildHalfExtents, undefined, buildingLayerMask);
+```
 
 ## 应用场景
 
@@ -196,14 +204,12 @@ overlapCapsuleAll(
 const characterCenter = new Vector3(0, 1, 0);
 const attackRadius = 1.0;
 const attackHeight = 4.0;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const enemyLayer = Layer.Layer3; // 使用实际存在的层
 
 const attackTargets = physicsScene.overlapCapsuleAll(
   characterCenter,
   attackRadius,
   attackHeight,
-  upright,
   enemyLayer
 );
 
@@ -225,7 +231,6 @@ const charactersInPortal = physicsScene.overlapCapsuleAll(
   portalCenter,
   portalRadius,
   portalHeight,
-  upright,
   characterLayer
 );
 
@@ -246,7 +251,6 @@ class ElevatorDetector {
       elevatorCenter,
       1.2,  // 胶囊半径
       4.4,  // 胶囊总高
-      upright,
       Layer.Layer0 | Layer.Layer4, // 使用实际层组合
       this._passengersBuffer
     );
@@ -268,12 +272,12 @@ class ElevatorDetector {
 
 - **halfExtents** (overlapBoxAll) - 盒子的半尺寸
 - **radius** (overlapSphereAll/overlapCapsuleAll) - 球体/胶囊的半径
-- **height** (overlapCapsuleAll) - 胶囊总高（世界单位），包含两端半球。高度小于或等于两倍半径时返回空结果。球形重叠查询请使用 `overlapSphereAll`。
+- **height** (overlapCapsuleAll) - 胶囊总高（世界单位），包含两端半球，默认长轴沿 Y。高度小于或等于两倍半径时返回空结果。球形重叠查询请使用 `overlapSphereAll`。
 - **orientation** (overlapBoxAll/overlapCapsuleAll) - 形状的旋转（默认为无旋转）
 
 ## 返回值说明
 
-所有检测函数都返回 `Collider[]` 数组，包含所有重叠的碰撞器。
+`overlap*All` 方法返回 `Collider[]` 数组，包含所有重叠的碰撞器。
 
 ## 性能优化建议
 

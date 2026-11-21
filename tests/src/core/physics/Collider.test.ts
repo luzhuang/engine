@@ -37,7 +37,11 @@ describe("Collider", () => {
   let physics: PhysicsScene;
 
   beforeAll(async () => {
-    engine = await WebGLEngine.create({ canvas: document.createElement("canvas"), physics: createPhysics() });
+    engine = await WebGLEngine.create({
+      canvas: document.createElement("canvas"),
+      physics: createPhysics(),
+      physicsScene: { contactPairs: "all" }
+    });
     physics = engine.sceneManager.activeScene.physics;
     physics.gravity.set(0, 0, 0);
   });

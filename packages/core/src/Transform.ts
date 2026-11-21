@@ -608,6 +608,30 @@ export class Transform extends Component implements ICloneHook<Transform> {
     this._updateAllWorldFlag(TransformModifyFlags.WmWpWeWqWsWus);
   }
 
+  /** @internal Moves root translation without changing an authored matrix's linear part. */
+  _translateRootForOriginShift(offset: Vector3): void {
+    const position = this._position;
+    const listener = position._onValueChanged;
+    position._onValueChanged = null;
+    position.subtract(offset);
+    position._onValueChanged = listener;
+    if (this._hasAuthoredLocalMatrix) {
+      const elements = this._localMatrix.elements;
+      elements[12] -= offset.x;
+      elements[13] -= offset.y;
+      elements[14] -= offset.z;
+    } else {
+      this._setDirtyFlagTrue(TransformModifyFlags.LocalMatrix);
+    }
+  }
+
+  /** @internal Invalidates world translation before the scene publishes changes to listeners. */
+  _markOriginShift(): number {
+    const changes = TransformModifyFlags.WmWp & ~this._dirtyFlag;
+    this._dirtyFlag |= TransformModifyFlags.WmWp;
+    return changes;
+  }
+
   /**
    * @internal
    */

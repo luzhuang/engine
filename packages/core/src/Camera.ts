@@ -716,6 +716,14 @@ export class Camera extends Component {
     this._dispatchModify(CameraModifyFlags.DisableInScene);
   }
 
+  /** @internal Re-expresses authored views in the shifted world frame. */
+  _shiftWorldOrigin(offset: Vector3): void {
+    if (this._isCustomViewMatrix) {
+      this._virtualCamera.viewMatrix.translate(offset);
+      this._viewMatrixChange();
+    }
+  }
+
   /**
    * @internal
    * Whether independent canvas is enabled.

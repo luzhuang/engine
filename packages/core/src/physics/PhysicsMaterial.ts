@@ -16,6 +16,12 @@ export class PhysicsMaterial extends ReferResource {
     bounceCombine: PhysicsMaterialCombineMode.Average
   };
 
+  private static _validateFriction(value: number): void {
+    if (typeof value !== "number" || !(value >= 0 && Number.isFinite(Math.fround(value)))) {
+      throw new RangeError("Physics material friction must be finite and nonnegative.");
+    }
+  }
+
   private _bounciness = PhysicsMaterial._defaultProperties.bounciness;
   private _dynamicFriction = PhysicsMaterial._defaultProperties.dynamicFriction;
   private _staticFriction = PhysicsMaterial._defaultProperties.staticFriction;
@@ -36,13 +42,17 @@ export class PhysicsMaterial extends ReferResource {
   }
 
   /**
-   * The coefficient of bounciness. Must be between 0 and 1.
+   * The coefficient of restitution from 0 to 1.
+   * @throws When assigned a value outside that range.
    */
   get bounciness(): number {
     return this._bounciness;
   }
 
   set bounciness(value: number) {
+    if (typeof value !== "number" || !(value >= 0 && value <= 1)) {
+      throw new RangeError("Physics material bounciness must be between 0 and 1.");
+    }
     if (this._bounciness !== value) {
       this._bounciness = value;
       this._nativeMaterial.setBounciness(value);
@@ -51,12 +61,14 @@ export class PhysicsMaterial extends ReferResource {
 
   /**
    * The coefficient of dynamic friction.
+   * @throws When assigned a negative or non-finite Float32 value.
    */
   get dynamicFriction(): number {
     return this._dynamicFriction;
   }
 
   set dynamicFriction(value: number) {
+    PhysicsMaterial._validateFriction(value);
     if (this._dynamicFriction !== value) {
       this._dynamicFriction = value;
       this._nativeMaterial.setDynamicFriction(value);
@@ -65,12 +77,14 @@ export class PhysicsMaterial extends ReferResource {
 
   /**
    * The coefficient of static friction.
+   * @throws When assigned a negative or non-finite Float32 value.
    */
   get staticFriction(): number {
     return this._staticFriction;
   }
 
   set staticFriction(value: number) {
+    PhysicsMaterial._validateFriction(value);
     if (this._staticFriction !== value) {
       this._staticFriction = value;
       this._nativeMaterial.setStaticFriction(value);

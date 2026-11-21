@@ -9,13 +9,21 @@ Overlap Detection is a physics engine feature used to detect all overlapping col
 
 ## Overview
 
-Galacean Physics Engine provides three overlap detection functions:
+Galacean Physics Engine supports box, sphere, and capsule overlap queries:
 
 - **overlapBoxAll** - Box Overlap: Detects all colliders overlapping with a cubic region
 - **overlapSphereAll** - Sphere Overlap: Detects all colliders overlapping with a spherical region
 - **overlapCapsuleAll** - Capsule Overlap: Detects all colliders overlapping with a capsule region
 
 <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*VDrBSajmuW8AAAAAWeAAAAgAesJ_AQ/original" />
+
+## Check whether a region is occupied
+
+Use `checkBox`, `checkSphere`, or `checkCapsule` when you only need a yes/no answer. They use the same dimensions, world-space orientation, and query filters as the corresponding `overlap*All` methods. The query stops at the first matching collider and returns a boolean.
+
+```typescript
+const occupied = physicsScene.checkBox(buildCenter, buildHalfExtents, undefined, buildingLayerMask);
+```
 
 ## Use Cases
 
@@ -196,14 +204,12 @@ overlapCapsuleAll(
 const characterCenter = new Vector3(0, 1, 0);
 const attackRadius = 1.0;
 const attackHeight = 4.0;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const enemyLayer = Layer.Layer3; // Use actual existing layer
 
 const attackTargets = physicsScene.overlapCapsuleAll(
   characterCenter,
   attackRadius,
   attackHeight,
-  upright,
   enemyLayer
 );
 
@@ -225,7 +231,6 @@ const charactersInPortal = physicsScene.overlapCapsuleAll(
   portalCenter,
   portalRadius,
   portalHeight,
-  upright,
   characterLayer
 );
 
@@ -246,7 +251,6 @@ class ElevatorDetector {
       elevatorCenter,
       1.2,  // Capsule radius
       4.4,  // Total capsule height
-      upright,
       Layer.Layer0 | Layer.Layer4, // Use actual layer combination
       this._passengersBuffer
     );
@@ -268,12 +272,12 @@ class ElevatorDetector {
 
 - **halfExtents** (overlapBoxAll) - Half-size of the box
 - **radius** (overlapSphereAll/overlapCapsuleAll) - Radius of the sphere/capsule
-- **height** (overlapCapsuleAll) - Total height in world units, including both caps. If the height is at most twice the radius, the query returns an empty result. Use `overlapSphereAll` for a sphere.
+- **height** (overlapCapsuleAll) - Total height in world units, including both caps. The default long axis is Y. If the height is at most twice the radius, the query returns an empty result. Use `overlapSphereAll` for a sphere.
 - **orientation** (overlapBoxAll/overlapCapsuleAll) - Shape rotation (defaults to no rotation)
 
 ## Return Values
 
-All detection functions return a `Collider[]` array containing all overlapping Colliders.
+The `overlap*All` methods return a `Collider[]` array containing all overlapping Colliders.
 
 ## Performance Optimization Tips
 
