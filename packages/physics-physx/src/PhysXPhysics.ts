@@ -240,6 +240,7 @@ export class PhysXPhysics implements IPhysics {
     } else {
       create = await new Promise<PhysXFactory>((resolve, reject) => {
         const script = document.createElement("script");
+        script.crossOrigin = "anonymous";
         script.src = scriptUrl;
         script.onload = () => {
           script.remove();
