@@ -11,6 +11,7 @@ import {
   ICapsuleColliderShape,
   IHeightFieldColliderShape,
   IMeshColliderShape,
+  IMeshColliderSource,
   IPlaneColliderShape,
   ISphereColliderShape
 } from "./shape";
@@ -97,20 +98,18 @@ export interface IPhysics {
   ): ICapsuleColliderShape;
 
   /**
-   * Create a collider shape from cooked mesh data.
+   * Cook source mesh data and create a collider shape.
    * @param uniqueID - The collider ID reported by queries and events
-   * @param positions - Unscaled vertices in mesh-local space
-   * @param indices - Triangle indices, or null for a convex mesh
+   * @param source - Committed mesh-local positions and optional triangle indices
    * @param isConvex - Whether to create convex mesh (true) or triangle mesh (false)
    * @param material - The material of this shape
    * @param cookingFlags - Cooking flags
-   * @param scale - The absolute world scale applied to the cooked mesh
+   * @param scale - The signed world scale applied to the cooked mesh
    * @returns The shape, or null if mesh cooking or shape creation fails
    */
   createMeshColliderShape(
     uniqueID: number,
-    positions: Vector3[],
-    indices: Uint8Array | Uint16Array | Uint32Array | null,
+    source: IMeshColliderSource,
     isConvex: boolean,
     material: IPhysicsMaterial,
     cookingFlags: number,

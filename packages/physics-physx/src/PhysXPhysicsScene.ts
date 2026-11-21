@@ -199,7 +199,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
    * {@inheritDoc IPhysicsScene.setContactEventEnabled }
    */
   setContactEventEnabled(enabled: boolean): void {
-    this._physXPhysics._physX.setContactEventEnabled(this._physXSimulationCallbackInstance, enabled);
+    this._pxScene.setContactEventEnabled(enabled);
     if (!enabled) {
       this._physicsEvents.contactEventCount = 0;
     }

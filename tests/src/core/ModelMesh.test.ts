@@ -65,6 +65,38 @@ describe("ModelMesh Test", async function () {
     falsyJoints = [new Vector4()];
   });
 
+  it("rereads an interleaved position layout without losing submitted normals", () => {
+    const mesh = new ModelMesh(engine);
+    const buffer = new Buffer(
+      engine,
+      BufferBindFlag.VertexBuffer,
+      new Float32Array([1, 0, 0, 9, 0, 0, 0, 1, 0]),
+      BufferUsage.Static,
+      true
+    );
+    const normal = new VertexElement(VertexAttribute.Normal, 24, VertexElementFormat.Vector3, 0);
+    const positionsAt = (offset: number) =>
+      new VertexElement(VertexAttribute.Position, offset, VertexElementFormat.Vector3, 0);
+    try {
+      mesh.setVertexElements([positionsAt(0), normal]);
+      mesh.setVertexBufferBinding(buffer, 36);
+      expect(mesh.getPositions()[0].x).toBe(1);
+
+      mesh.setNormals([new Vector3(0, 0, 1)]);
+      mesh.setVertexElements([positionsAt(12), normal]);
+      expect(mesh.getPositions()[0].x).toBe(9);
+      expect(mesh.getNormals()[0].z).toBe(1);
+
+      mesh.uploadData(false);
+      expect(new Float32Array(buffer.data.buffer)[8]).toBe(1);
+      mesh.setVertexElements([positionsAt(0), normal]);
+      expect(mesh.getPositions()[0].x).toBe(1);
+    } finally {
+      mesh.destroy();
+      buffer.destroy();
+    }
+  });
+
   it("init", () => {
     expect(modelMesh.accessible).true;
   });

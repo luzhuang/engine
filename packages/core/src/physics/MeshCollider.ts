@@ -1,15 +1,10 @@
-import { IColliderShape, IMeshColliderShape } from "@galacean/engine-design";
+import { IColliderShape, IMeshColliderShape, IMeshColliderSource } from "@galacean/engine-design";
 import { Vector3 } from "@galacean/engine-math";
 import { ignoreClone } from "../clone/CloneDecorators";
 import { Engine } from "../Engine";
 import { ModelMesh } from "../mesh/ModelMesh";
 import { Collider } from "./Collider";
 import { MeshColliderShapeCookingFlag } from "./enums/MeshColliderShapeCookingFlag";
-
-type MeshData = {
-  positions: Vector3[];
-  indices: Uint8Array | Uint16Array | Uint32Array | null;
-};
 
 /**
  * A collider based on a triangle mesh or a convex hull.
@@ -24,7 +19,7 @@ export class MeshCollider extends Collider {
   private _cookingFlags = MeshColliderShapeCookingFlag.Cleaning | MeshColliderShapeCookingFlag.VertexWelding;
 
   @ignoreClone
-  private _nativeMesh: ModelMesh | null = null;
+  private _nativeMesh: ModelMesh | null | undefined = null;
   @ignoreClone
   private _nativeConvex = false;
   @ignoreClone
@@ -50,7 +45,8 @@ export class MeshCollider extends Collider {
     if (this._mesh !== value || this._cookFailed) {
       this._setMesh(value);
       if (!value) {
-        this._nativeMesh = null;
+        // Keep an explicit refresh pending across synchronization while the mesh is cleared.
+        this._nativeMesh = undefined;
       }
       this._cookFailed = false;
       this._markDirty();
@@ -219,12 +215,12 @@ export class MeshCollider extends Collider {
       this._nativeCookingFlags !== this._cookingFlags;
     let shape: IMeshColliderShape;
     if (needsCook) {
-      const meshData = MeshCollider._getMeshData(mesh, this._convex);
+      const meshData = MeshCollider._getMeshData(mesh, this._convex, this._nativeMesh === undefined);
       const updated = meshData && this._cook(previous, meshData, scale);
       if (!updated) {
         this._cookFailed = true;
         this._replaceNativeShape(null);
-        this._nativeMesh = null;
+        if (this._nativeMesh) this._nativeMesh = null;
         return null;
       }
       if (updated !== previous) {
@@ -265,18 +261,17 @@ export class MeshCollider extends Collider {
 
   private _cook(
     shape: IMeshColliderShape | null,
-    { positions, indices }: MeshData,
+    source: IMeshColliderSource,
     scale: Vector3
   ): IMeshColliderShape | null {
     const convex = this._convex;
     const flags = this._cookingFlags;
     if (shape && this._nativeConvex === convex) {
-      return shape.setMeshData(positions, indices, flags, scale) ? shape : null;
+      return shape.setMeshData(source, flags, scale) ? shape : null;
     }
     const replacement = Engine._nativePhysics.createMeshColliderShape(
       this._id,
-      positions,
-      indices,
+      source,
       convex,
       this._getNativeMaterial(),
       flags,
@@ -295,7 +290,7 @@ export class MeshCollider extends Collider {
     }
   }
 
-  private static _getMeshData(mesh: ModelMesh, convex: boolean): MeshData | null {
+  private static _getMeshData(mesh: ModelMesh, convex: boolean, refresh: boolean): IMeshColliderSource | null {
     if (!mesh.accessible) {
       console.warn("MeshCollider: mesh data is not accessible. Set 'keepMeshData' before uploading.");
       return null;
@@ -317,6 +312,6 @@ export class MeshCollider extends Collider {
       console.warn("MeshCollider: a non-convex mesh requires indices.");
       return null;
     }
-    return { positions, indices };
+    return { key: mesh, version: mesh._getMeshColliderDataVersion(convex), refresh, positions, indices };
   }
 }

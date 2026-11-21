@@ -4,4 +4,4 @@ export type { ICapsuleColliderShape } from "./ICapsuleColliderShape";
 export type { IHeightFieldColliderShape } from "./IHeightFieldColliderShape";
 export type { ISphereColliderShape } from "./ISphereColliderShape";
 export type { IPlaneColliderShape } from "./IPlaneColliderShape";
-export type { IMeshColliderShape } from "./IMeshColliderShape";
+export type { IMeshColliderShape, IMeshColliderSource } from "./IMeshColliderShape";

@@ -144,6 +144,42 @@ describe("MeshCollider", () => {
     expect(hit.collider).toBe(clone);
   });
 
+  it("shares cooked triangles across shapes and recooks when the source indices are submitted or refreshed", () => {
+    const mesh = createModelMesh(engine, [-1, 0, -1, 0, 0, 1, 1, 0, -1, 3, 0, -1, 4, 0, 1, 5, 0, -1], [0, 1, 2]);
+    const first = addMesh(false, mesh);
+    const hit = new HitResult();
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
+
+    const nativeCooking = (first as any)._native._physXPhysics._pxCooking;
+    const cook = vi.spyOn(nativeCooking, "createTriMesh");
+    const second = addMesh(false, mesh);
+    second.entity.transform.setPosition(10, 0, 0);
+    second.entity.transform.setScale(1.5, 1, 1);
+    expect(physics.raycast(rayAt(10), hit) && hit.collider === second).toBe(true);
+    expect(cook).not.toHaveBeenCalled();
+
+    const indices = mesh.getIndices()!;
+    indices.set([3, 4, 5]);
+    mesh.setIndices(indices);
+    const third = addMesh(false, mesh);
+    third.entity.transform.setPosition(20, 0, 0);
+    expect(physics.raycast(rayAt(24), hit) && hit.collider === third).toBe(true);
+    expect(physics.raycast(rayAt(20))).toBe(false);
+    expect(cook).toHaveBeenCalledTimes(1);
+    expect(physics.raycast(rayAt(10), hit) && hit.collider === second).toBe(true);
+
+    indices.set([0, 1, 2]);
+    first.mesh = null;
+    expect(physics.raycast(rayAt(0))).toBe(false);
+    first.mesh = mesh;
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
+    expect(cook).toHaveBeenCalledTimes(2);
+
+    second.destroy();
+    third.destroy();
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
+  });
+
   it("creates a triangle mesh lazily for raycasts", () => {
     const collider = addMesh(
       false,

@@ -245,6 +245,44 @@ describe("Collision", function () {
     });
   });
 
+  it("resumes reports for an existing contact without restarting the pair", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    addBox(new Vector3(3, 1, 3), null, new Vector3());
+    const body = addBox(new Vector3(1, 1, 1), Rigidbody, new Vector3(0, 0.99, 0));
+    const autoSimulation = physics.autoSimulation;
+    const events: string[] = [];
+    physics.autoSimulation = false;
+    try {
+      physics.step();
+      const script = body.addComponent(
+        class extends Script {
+          override onCollisionEnter(): void {
+            events.push("enter");
+          }
+
+          override onCollisionStay(collision: Collision): void {
+            expect(collision.relativeVelocity).not.toBeNull();
+            events.push("stay");
+          }
+
+          override onCollisionExit(): void {
+            events.push("exit");
+          }
+        }
+      );
+      physics.step();
+      script.enabled = false;
+      physics.step();
+      script.enabled = true;
+      physics.step();
+      body.transform.position.y = 4;
+      physics.step();
+      expect(events).toEqual(["stay", "stay", "exit"]);
+    } finally {
+      physics.autoSimulation = autoSimulation;
+    }
+  });
+
   it("reports the pre-solver relative velocity and impulses for both sides of compound contacts", () => {
     const physics = engine.sceneManager.activeScene.physics;
     physics.gravity = new Vector3();
