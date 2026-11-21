@@ -30,6 +30,8 @@ The default loader uses the PhysX JavaScript and WebAssembly files shipped with 
 In Vite development, add `@galacean/engine-physics-physx` to `optimizeDeps.exclude` so the assets resolve relative to the package.
 
 In a classic Web Worker loading the UMD bundle with `importScripts()`, provide explicit runtime script URLs.
+In a dedicated module Worker, import the package and initialize `PhysXPhysics` directly. The package loads its
+`.mjs` factory and the matching WASM. The same initialization works from Node.js using the installed package.
 
 ## Backend Notes
 

@@ -62,7 +62,8 @@ export class PhysXPhysics implements IPhysics {
   /**
    * Creates a PhysX backend.
    * @param runtimeMode - Runtime mode. `Auto` prefers WebAssembly SIMD when supported.
-   * @param runtimeUrls - Overrides the packaged runtime scripts. Each script locates its own WebAssembly binary.
+   * @param runtimeUrls - Overrides the packaged loaders. Use a module with a default factory in module Workers
+   * and Node.js. Each override locates its own WebAssembly binary.
    */
   constructor(
     private readonly _runtimeMode: PhysXRuntimeMode = PhysXRuntimeMode.Auto,
@@ -221,20 +222,23 @@ export class PhysXPhysics implements IPhysics {
     const simd =
       mode === PhysXRuntimeMode.WebAssemblySIMD ||
       (mode === PhysXRuntimeMode.Auto && SystemInfo._detectSIMDSupported());
+    const host = globalThis as typeof globalThis & {
+      PHYSX: PhysXFactory;
+      importScripts?: (...urls: string[]) => void;
+    };
+    const hasDocument = typeof document !== "undefined";
+    const useModule = !hasDocument && !isClassicWorker(host);
     const override = simd ? this._runtimeUrls?.wasmSIMDModeUrl : this._runtimeUrls?.wasmModeUrl;
     const [scriptUrl, wasmUrl] = override
       ? ([override, undefined] as const)
-      : (capturedRuntimeUrls?.[simd ? 1 : 0] ?? getPackagedRuntimeUrls(simd));
-    const host = globalThis as typeof globalThis & {
-      PHYSX: PhysXFactory;
-      importScripts?: (url: string) => void;
-    };
+      : (capturedRuntimeUrls?.[simd ? 1 : 0] ?? getPackagedRuntimeUrls(simd, useModule));
     let create: PhysXFactory;
     let locateFile: ((file: string) => string) | undefined = wasmUrl ? () => wasmUrl : undefined;
-    if (typeof document === "undefined") {
-      if (!host.importScripts) throw new Error("PhysX requires a browser window or classic web worker.");
+    if (useModule) {
+      create = (await import(/* @vite-ignore */ scriptUrl)).default;
+    } else if (!hasDocument) {
       const runtimeUrl = new URL(scriptUrl, location.href).href;
-      host.importScripts(runtimeUrl);
+      host.importScripts!(runtimeUrl);
       create = host.PHYSX;
       locateFile ??= (file: string) => new URL(file, runtimeUrl).href;
     } else {
@@ -253,6 +257,7 @@ export class PhysXPhysics implements IPhysics {
         document.head.appendChild(script);
       });
     }
+    if (typeof create !== "function") throw new Error(`No PhysX factory was exported by ${scriptUrl}.`);
     this._init(await create(locateFile ? { locateFile } : undefined), simd);
   }
 
@@ -294,14 +299,29 @@ const capturedRuntimeUrls =
     ? [getPackagedRuntimeUrls(false), getPackagedRuntimeUrls(true)]
     : undefined;
 
-function getPackagedRuntimeUrls(simd: boolean): [script: string, wasm: string] {
+function isClassicWorker(host: { importScripts?: (...urls: string[]) => void }): boolean {
+  if (!host.importScripts) return false;
+  try {
+    // Module Workers expose importScripts but reject even an empty call.
+    host.importScripts();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getPackagedRuntimeUrls(simd: boolean, useModule = false): [script: string, wasm: string] {
   return simd
     ? [
-        new URL("../libs/physx.release.simd.js", import.meta.url).href,
+        useModule
+          ? new URL("../libs/physx.release.simd.mjs", import.meta.url).href
+          : new URL("../libs/physx.release.simd.js", import.meta.url).href,
         new URL("../libs/physx.release.simd.wasm", import.meta.url).href
       ]
     : [
-        new URL("../libs/physx.release.js", import.meta.url).href,
+        useModule
+          ? new URL("../libs/physx.release.mjs", import.meta.url).href
+          : new URL("../libs/physx.release.js", import.meta.url).href,
         new URL("../libs/physx.release.wasm", import.meta.url).href
       ];
 }
