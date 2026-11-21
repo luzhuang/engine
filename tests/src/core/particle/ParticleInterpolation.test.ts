@@ -112,7 +112,7 @@ describe("Particle interpolation", () => {
     const blendedX = 1.5 + Math.SQRT1_2 + (feedback ? shift * Math.SQRT1_2 : shift);
     const blendedY = (feedback ? 1 - shift : 1) * Math.SQRT1_2;
     camera.entity.transform.setPosition(blendedX, blendedY, 10);
-    camera.orthographicSize = 0.25;
+    camera.orthographicSize = 0.1;
     now += elapsed * 1000;
     engine.update();
     expect(local.transform.worldPosition.x).toBeCloseTo(3, 5);
