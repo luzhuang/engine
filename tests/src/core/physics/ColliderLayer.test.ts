@@ -11,6 +11,7 @@ import {
   PhysicsScene,
   PrimitiveMesh,
   Rigidbody,
+  Scene,
   Script,
   SphereCollider
 } from "@galacean/engine-core";
@@ -251,6 +252,83 @@ describe("Collider layer validation", () => {
       expect(recorder.onTriggerEnter).toHaveBeenCalledOnce();
     } finally {
       physics.setColliderLayerCollision(Layer.Layer0, Layer.Layer1, true);
+    }
+  });
+
+  it("refilters shape overrides and ignores only the selected pair", () => {
+    const target = root.createChild("target");
+    const trigger = target.addComponent(BoxCollider);
+    trigger.isTrigger = true;
+    trigger.collisionLayer = Layer.Layer29;
+    target.addComponent(Rigidbody).isKinematic = true;
+    const recorder = target.addComponent(TriggerRecorder);
+    const first = root.createChild("first").addComponent(BoxCollider);
+    const second = root.createChild("second").addComponent(BoxCollider);
+    first.collisionLayer = second.collisionLayer = Layer.Layer31;
+
+    try {
+      physics.setColliderLayerCollision(Layer.Layer29, Layer.Layer31, false);
+      update(1);
+      expect(recorder.onTriggerEnter).not.toHaveBeenCalled();
+
+      trigger.includeLayers = Layer.Layer31;
+      update(1);
+      expect(recorder.onTriggerEnter).toHaveBeenCalledTimes(2);
+
+      recorder.onTriggerStay.mockClear();
+      physics.setColliderPairIgnored(trigger, first);
+      update(1);
+      expect(recorder.onTriggerExit.mock.calls).toEqual([[first, trigger]]);
+      expect(recorder.onTriggerStay.mock.calls).toEqual([[second, trigger]]);
+
+      first.enabled = false;
+      first.enabled = true;
+      update(1);
+      expect(recorder.onTriggerEnter).toHaveBeenCalledTimes(3);
+
+      trigger.excludeLayers = Layer.Layer31;
+      update(1);
+      expect(recorder.onTriggerExit).toHaveBeenCalledTimes(3);
+    } finally {
+      physics.setColliderLayerCollision(Layer.Layer29, Layer.Layer31, true);
+    }
+  });
+
+  it("refilters only the scene whose layer matrix changed", () => {
+    const otherScene = new Scene(engine);
+    engine.sceneManager.addScene(otherScene);
+    const scenes = [physics, otherScene.physics];
+    const recorders = [root, otherScene.createRootEntity("second-scene")].map((parent) => {
+      const entity = parent.createChild("trigger");
+      entity.addComponent(Rigidbody).isKinematic = true;
+      const trigger = entity.addComponent(BoxCollider);
+      trigger.collisionLayer = Layer.Layer30;
+      trigger.isTrigger = true;
+      parent.createChild("probe").addComponent(BoxCollider).collisionLayer = Layer.Layer31;
+      return entity.addComponent(TriggerRecorder);
+    });
+
+    const step = () => {
+      for (const scene of scenes) {
+        scene.autoSimulation = false;
+        scene.step();
+      }
+    };
+    try {
+      step();
+      for (const recorder of recorders) expect(recorder.onTriggerEnter).toHaveBeenCalledOnce();
+
+      physics.setColliderLayerCollision(Layer.Layer30, Layer.Layer31, false);
+      step();
+      expect(physics.getColliderLayerCollision(Layer.Layer31, Layer.Layer30)).toBe(false);
+      expect(otherScene.physics.getColliderLayerCollision(Layer.Layer31, Layer.Layer30)).toBe(true);
+      expect(recorders[0].onTriggerExit).toHaveBeenCalledOnce();
+      expect(recorders[1].onTriggerExit).not.toHaveBeenCalled();
+      expect(recorders[1].onTriggerStay).toHaveBeenCalledOnce();
+    } finally {
+      physics.autoSimulation = true;
+      physics.setColliderLayerCollision(Layer.Layer30, Layer.Layer31, true);
+      otherScene.destroy();
     }
   });
 

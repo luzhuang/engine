@@ -3,6 +3,8 @@ import {
   BoxCollider,
   CharacterController,
   CharacterControllerGeometry,
+  ControllerClimbingMode,
+  ControllerColliderHit,
   ControllerCollisionFlag,
   ControllerNonWalkableMode,
   Entity,
@@ -11,6 +13,7 @@ import {
   PhysicsScene,
   PlaneCollider,
   Rigidbody,
+  Scene,
   Script,
   Transform
 } from "@galacean/engine-core";
@@ -40,6 +43,7 @@ describe("CharacterController", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    physics.autoSimulation = true;
     root.destroy();
     engine.resourceManager.gc();
   });
@@ -95,11 +99,228 @@ describe("CharacterController", () => {
     expect(capsule.size.y).toBe(1);
     expect(capsule.size.z).toBe(1);
     expect(capsule.stepOffset).toBe(0.5);
+    expect(capsule.climbingMode).toBe(ControllerClimbingMode.Constrained);
     expect(capsule.nonWalkableMode).toBe(ControllerNonWalkableMode.PreventClimbing);
     expect(capsule.upDirection.x).toBe(0);
     expect(capsule.upDirection.y).toBe(1);
     expect(capsule.upDirection.z).toBe(0);
     expect(capsule.slopeLimit).toBe(45);
+  });
+
+  it.each([CharacterControllerGeometry.Box, CharacterControllerGeometry.Capsule])(
+    "resizes at a fixed foot position and teleports by the foot in world space (geometry=%s)",
+    (geometry) => {
+      role.transform.setPosition(0, 4, 0);
+      role.transform.setScale(1, 2, 1);
+      controller.geometry = geometry;
+      controller.size.y = 2;
+      controller.contactOffset = 0.25;
+      const foot = new Vector3();
+      expect(controller.getFootPosition(foot)).toBe(true);
+      expect(foot.y).toBeCloseTo(1.75);
+
+      expect(controller.resize(3)).toBe(true);
+      expect(role.transform.worldPosition.y).toBeCloseTo(5);
+      expect(geometry === CharacterControllerGeometry.Box ? controller.size.y : controller.height).toBe(3);
+      expect(controller.getFootPosition(foot)).toBe(true);
+      expect(foot.y).toBeCloseTo(1.75);
+      expect(controller.resize(0)).toBe(false);
+
+      expect(controller.setFootPosition(new Vector3(3, 5, 0))).toBe(true);
+      expect(role.transform.worldPosition.y).toBeCloseTo(8.25);
+      expect(controller.getFootPosition(foot)).toBe(true);
+      expect([foot.x, foot.y, foot.z]).toEqual([3, 5, 0]);
+      const hit = new HitResult();
+      expect(physics.raycast(new Ray(new Vector3(3, 8.25, -3), new Vector3(0, 0, 1)), 5, hit)).toBe(true);
+      expect(hit.collider).toBe(controller);
+      expect(physics.raycast(new Ray(new Vector3(0, 5, -3), new Vector3(0, 0, 1)), 5)).toBe(false);
+
+      controller.enabled = false;
+      expect(controller.getFootPosition(foot)).toBe(false);
+      expect([foot.x, foot.y, foot.z]).toEqual([3, 5, 0]);
+    }
+  );
+
+  it("applies the scene overlap recovery setting to character movement", () => {
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    addBox(new Vector3(2, 10, 10), new Vector3(0, 5, 0));
+    const displacement = new Vector3(0.01, 0, 0);
+    expect(physics.characterControllerOverlapRecovery).toBe(true);
+    try {
+      physics.characterControllerOverlapRecovery = false;
+      role.transform.setPosition(0.9, 5, 0);
+      controller.move(displacement);
+      expect(role.transform.worldPosition.x).toBeLessThan(1);
+
+      physics.characterControllerOverlapRecovery = true;
+      role.transform.setPosition(0.9, 5, 0);
+      controller.move(displacement);
+      expect(role.transform.worldPosition.x).toBeGreaterThan(1.49);
+    } finally {
+      physics.characterControllerOverlapRecovery = true;
+    }
+  });
+
+  it("changes whether a capsule can climb above its step offset", () => {
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    controller.stepOffset = 0.05;
+    addBox(new Vector3(1, 0.25, 3), new Vector3(0, 0.125, 0));
+    const displacement = new Vector3(0.06, -0.02, 0);
+    const approachStep = () => {
+      role.transform.setPosition(-1.25, 1.02, 0);
+      for (let i = 0; i < 24; i++) controller.move(displacement);
+      return role.transform.worldPosition.x;
+    };
+
+    expect(approachStep()).toBeLessThan(-0.9);
+    controller.climbingMode = ControllerClimbingMode.Easy;
+    expect(approachStep()).toBeGreaterThan(0);
+  });
+
+  it("reports solid sweep contacts with the published position and world-space hit data", () => {
+    const wall = addBox(new Vector3(1, 5, 5), new Vector3(2, 5, 0));
+    addBox(new Vector3(0.2, 5, 5), new Vector3(0.75, 5, 0)).isTrigger = true;
+    role.transform.setPosition(0, 5, 0);
+    controller.stepOffset = 0;
+    class Recorder extends Script {
+      onControllerColliderHit = vi.fn((hit: ControllerColliderHit) => {
+        expect(hit.controller).toBe(controller);
+        expect(hit.collider).toBe(wall);
+        expect(role.transform.worldPosition.x).toBeCloseTo(0.98);
+        expect(hit.point.x).toBeCloseTo(1.5);
+        expect(hit.normal.x).toBeCloseTo(-1);
+        expect(hit.moveDirection.x).toBeCloseTo(1);
+        expect(hit.moveLength).toBeGreaterThan(0);
+      });
+    }
+    const recorder = role.addComponent(Recorder);
+    expect(controller.move(new Vector3(5, 0, 0)) & ControllerCollisionFlag.Sides).toBeTruthy();
+    expect(recorder.onControllerColliderHit).toHaveBeenCalled();
+  });
+
+  it("reports other controllers only when their layers collide", () => {
+    role.transform.setPosition(0, 5, 0);
+    controller.collisionLayer = Layer.Layer1;
+    controller.stepOffset = 0;
+    const target = root.createChild("target");
+    target.transform.setPosition(2, 5, 0);
+    const other = target.addComponent(CharacterController);
+    other.geometry = CharacterControllerGeometry.Box;
+    other.collisionLayer = Layer.Layer2;
+    class Recorder extends Script {
+      onControllerColliderHit = vi.fn((hit: ControllerColliderHit) => expect(hit.collider).toBe(other));
+    }
+    const recorder = role.addComponent(Recorder);
+    const prior = physics.getColliderLayerCollision(Layer.Layer1, Layer.Layer2);
+    const offset = new Vector3(5, 0, 0);
+    try {
+      physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, false);
+      expect(controller.move(offset)).toBe(ControllerCollisionFlag.None);
+      expect(recorder.onControllerColliderHit).not.toHaveBeenCalled();
+
+      physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, true);
+      role.transform.setPosition(0, 5, 0);
+      expect(controller.move(offset) & ControllerCollisionFlag.Sides).toBeTruthy();
+      expect(recorder.onControllerColliderHit).toHaveBeenCalled();
+    } finally {
+      physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, prior);
+    }
+  });
+
+  it("keeps the outer hit intact during a nested move and allows destruction in the callback", () => {
+    const outerWall = addBox(new Vector3(1, 2, 1), new Vector3(2, 5, 0));
+    const innerWall = addBox(new Vector3(1, 2, 1), new Vector3(3, 5, 6));
+    role.transform.setPosition(0, 5, 0);
+    controller.stepOffset = 0;
+    const target = root.createChild("inner");
+    target.transform.setPosition(0, 5, 6);
+    const inner = target.addComponent(CharacterController);
+    inner.stepOffset = 0;
+    const offset = new Vector3(5, 0, 0);
+    class InnerRecorder extends Script {
+      onControllerColliderHit = vi.fn((hit: ControllerColliderHit) => expect(hit.collider).toBe(innerWall));
+    }
+    const innerRecorder = target.addComponent(InnerRecorder);
+    class OuterRecorder extends Script {
+      override onControllerColliderHit(hit: ControllerColliderHit): void {
+        expect(hit.collider).toBe(outerWall);
+        const pointX = hit.point.x;
+        inner.move(offset);
+        expect(hit.collider).toBe(outerWall);
+        expect(hit.point.x).toBe(pointX);
+        hit.controller.destroy();
+      }
+    }
+    role.addComponent(OuterRecorder);
+    controller.move(offset);
+    expect(innerRecorder.onControllerColliderHit).toHaveBeenCalled();
+    expect(controller.destroyed).toBe(true);
+  });
+
+  it("lets a controller-hit script apply an impulse to the contacted Rigidbody", () => {
+    const box = addBox(new Vector3(1, 2, 1), new Vector3(2, 5, 0));
+    const body = box.entity.addComponent(Rigidbody);
+    body.useGravity = false;
+    role.transform.setPosition(0, 5, 0);
+    controller.stepOffset = 0;
+    const impulse = new Vector3(2, 0, 0);
+    class PushBox extends Script {
+      override onControllerColliderHit(hit: ControllerColliderHit): void {
+        hit.collider.attachedRigidbody?.applyImpulseAtPosition(impulse, hit.point);
+      }
+    }
+    role.addComponent(PushBox);
+    physics.autoSimulation = false;
+    controller.move(new Vector3(5, 0, 0));
+    physics.step();
+    expect(body.linearVelocity.x).toBeGreaterThan(1);
+  });
+
+  it.each([false, true])("follows a moving platform after changing layer rules (another scene=%s)", (otherScene) => {
+    const separate = otherScene ? new Scene(engine, "other") : undefined;
+    if (separate) engine.sceneManager.addScene(separate);
+    const filterScene = separate?.physics ?? physics;
+    const platform = addBox(new Vector3(8, 1, 8), new Vector3(0, 4, 0));
+    const body = platform.entity.addComponent(Rigidbody);
+    body.isKinematic = true;
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    role.transform.setPosition(2, 5.54, 0);
+    controller.stepOffset = 0;
+    const downward = new Vector3(0, -0.05, 0);
+    physics.autoSimulation = false;
+    physics.step();
+    controller.move(downward);
+    expect(controller.isGrounded).toBe(true);
+
+    body.move(new Vector3(1, 4.5, 0));
+    physics.step();
+    try {
+      filterScene.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, false);
+      controller.move(downward);
+    } finally {
+      filterScene.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, true);
+      separate?.destroy();
+    }
+    expect(role.transform.worldPosition.x).toBeCloseTo(3);
+    expect(role.transform.worldPosition.y).toBeCloseTo(6.02);
+
+    const turn = new Quaternion();
+    Quaternion.rotationY(Math.PI / 2, turn);
+    body.move(turn);
+    physics.step();
+    controller.move(downward);
+    expect(role.transform.worldPosition.x).toBeCloseTo(1);
+    expect(role.transform.worldPosition.z).toBeCloseTo(-2);
+    expect(role.transform.worldRotationQuaternion.w).toBe(1);
+    expect(controller.isGrounded).toBe(true);
+  });
+
+  it("mirrors the center offset when the controller's scale is negative", () => {
+    role.transform.setScale(-1, 1, 1);
+    controller.center.set(1, 0, 0);
+    const foot = new Vector3();
+    expect(controller.getFootPosition(foot)).toBe(true);
+    expect(foot.x).toBeCloseTo(-1);
   });
 
   it("clones authored box size and syncs subsequent mutations on the clone", () => {
@@ -255,7 +476,7 @@ describe("CharacterController", () => {
     expect(controller.isTrigger).toBe(false);
   });
 
-  it("uses the same step height limit before creation, while active, and after reenabling", () => {
+  it("applies the step height limit without removing the controller", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     role.transform.setPosition(0, 2, 0);
     controller.size.set(1, 0.5, 1);
@@ -264,18 +485,15 @@ describe("CharacterController", () => {
     const canHitController = () => physics.raycast(ray, 10, hit) && hit.collider === controller;
 
     controller.stepOffset = 0.51;
-    expect(canHitController()).toBe(false);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("within the controller's world height"));
-
-    controller.stepOffset = 0.5;
     expect(canHitController()).toBe(true);
-    controller.stepOffset = 0.51;
-    expect(canHitController()).toBe(false);
+    controller.stepOffset = 10;
+    expect(canHitController()).toBe(true);
 
     controller.enabled = false;
     controller.enabled = true;
-    expect(canHitController()).toBe(false);
-    expect(controller.stepOffset).toBe(0.51);
+    expect(canHitController()).toBe(true);
+    expect(controller.stepOffset).toBe(10);
+    expect(error).not.toHaveBeenCalled();
 
     controller.size.y = 0.6;
     expect(canHitController()).toBe(true);
@@ -301,11 +519,11 @@ describe("CharacterController", () => {
       role.transform.setPosition(0, 10, 0);
       const flags = move(new Vector3(0, -20, 0));
       expect(flags & ControllerCollisionFlag.Down).toBe(ControllerCollisionFlag.Down);
-      expect(role.transform.position.y).toBeCloseTo(geometry === CharacterControllerGeometry.Box ? 0.02 : 0.52, 4);
+      expect(role.transform.position.y).toBeCloseTo(0.02, 4);
       controller.center.y = 0;
       role.transform.setPosition(0, 10, 0);
       move(new Vector3(0, -20, 0));
-      expect(role.transform.position.y).toBeCloseTo(geometry === CharacterControllerGeometry.Box ? 3.02 : 3.52, 4);
+      expect(role.transform.position.y).toBeCloseTo(3.02, 4);
       role.transform.setScale(1, 1, 1);
       role.transform.setPosition(0, 10, 0);
       move(new Vector3(0, -20, 0));
@@ -463,6 +681,7 @@ describe("CharacterController", () => {
       controller.radius = 0.2;
       controller.height = 1.4;
       controller.stepOffset = 0.2;
+      controller.climbingMode = ControllerClimbingMode.Easy;
       controller.slopeLimit = 30;
       controller.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSliding;
       const clone = role.clone();
@@ -478,6 +697,7 @@ describe("CharacterController", () => {
       expect(copy.radius).toBe(0.2);
       expect(copy.height).toBe(1.4);
       expect(copy.stepOffset).toBe(0.2);
+      expect(copy.climbingMode).toBe(ControllerClimbingMode.Easy);
       expect(copy.slopeLimit).toBe(30);
       expect(copy.nonWalkableMode).toBe(ControllerNonWalkableMode.PreventClimbingAndForceSliding);
       copy.move(new Vector3(0, -20, 0), 0.0001, physics.fixedTimeStep);
@@ -522,17 +742,16 @@ describe("CharacterController", () => {
     const cc = entity.addComponent(CharacterController);
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    cc.stepOffset = 10;
+    cc.height = 1;
     physics._update(physics.fixedTimeStep);
-    const errorCountAfterInvalid = errors.mock.calls.length;
-    expect(errorCountAfterInvalid).toBeGreaterThan(0);
+    expect(physics.overlapSphereAll(entity.transform.worldPosition, 0.1)).not.toContain(cc);
 
     cc.collisionLayer = Layer.Layer3;
     cc.isSceneQuery = true;
-    expect(errors.mock.calls.length).toBe(errorCountAfterInvalid);
+    expect(errors).not.toHaveBeenCalled();
 
     entity.transform.setPosition(8, 2, 0);
-    cc.stepOffset = 0.5;
+    cc.height = 2;
 
     const hit = new HitResult();
     expect(physics.raycast(new Ray(new Vector3(8, 10, 0), new Vector3(0, -1, 0)), 20, Layer.Layer3, hit)).toBe(true);
@@ -618,6 +837,28 @@ describe("CharacterController", () => {
     controller.center = new Vector3(0, 3, 0);
     expect(physics.overlapSphereAll(new Vector3(12, 5, 0), 0.1)).toContain(controller);
     expect(physics.overlapSphereAll(new Vector3(12, 2, 0), 0.1)).not.toContain(controller);
+  });
+
+  it("reports the latest contacts and actual velocity using the fixed timestep by default", () => {
+    role.transform.setPosition(0, 2, 0);
+    const velocity = new Vector3();
+    expect(controller.move(new Vector3(0.25, 0, 0))).toBe(ControllerCollisionFlag.None);
+    expect(controller.collisionFlags).toBe(ControllerCollisionFlag.None);
+    expect(controller.isGrounded).toBe(false);
+    expect(controller.getVelocity(velocity)).toBe(velocity);
+    expect(velocity.x).toBeCloseTo(0.25 / physics.fixedTimeStep);
+
+    const contacts = controller.move(new Vector3(0, -5, 0));
+    expect(contacts & ControllerCollisionFlag.Down).toBe(ControllerCollisionFlag.Down);
+    expect(controller.collisionFlags).toBe(contacts);
+    expect(controller.isGrounded).toBe(true);
+    expect(controller.getVelocity(velocity).y).toBeCloseTo(
+      (role.transform.worldPosition.y - 2) / physics.fixedTimeStep
+    );
+
+    controller.enabled = false;
+    expect(controller.collisionFlags).toBe(ControllerCollisionFlag.None);
+    expect(controller.getVelocity(velocity).lengthSquared()).toBe(0);
   });
 
   it("clamps negative dimensions, rejects non-finite scalars, and detaches cleanly on zero dimensions or scale", () => {
@@ -804,21 +1045,20 @@ describe("CharacterController", () => {
       const recoverEntity = root.createChild("recover-cct");
       recoverEntity.transform.setPosition(0, 5, 0);
       const recoverCC = recoverEntity.addComponent(CharacterController);
-      recoverCC.stepOffset = 10; // invalid (> total capsule height 2)
+      recoverCC.height = 1;
 
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});
       recoverCC.move(new Vector3(0, -0.1, 0), 0.0001, physics.fixedTimeStep);
-      expect(errors).toHaveBeenCalledTimes(1);
+      expect(errors).not.toHaveBeenCalled();
 
-      errors.mockClear();
       recoverEntity.transform.setPosition(7, 4, -2);
       recoverCC.collisionLayer = Layer.Layer3;
       recoverCC.isSceneQuery = true;
-      recoverCC.nonWalkableMode = ControllerNonWalkableMode.ForceSliding;
+      recoverCC.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSliding;
       recoverCC.upDirection = new Vector3(0, 1, 0);
       expect(errors).not.toHaveBeenCalled();
 
-      recoverCC.stepOffset = 0.3;
+      recoverCC.height = 2;
       recoverCC.move(new Vector3(0, 0, 0), 0.0001, physics.fixedTimeStep);
       expect(errors).not.toHaveBeenCalled();
       expect(recoverEntity.transform.position.x).toBeCloseTo(7, 4);
@@ -935,7 +1175,8 @@ describe("CharacterController", () => {
       move(new Vector3(4, 0, 0));
       const x = role.transform.worldPosition.x;
       expect(x).toBeCloseTo(4, 5);
-      expect(hitsController(x)).toBe(false);
+      expect(hitsController(x)).toBe(true);
+      expect(hitsController(0)).toBe(false);
 
       role.transform.worldPosition.x = x + 1;
       controller.center.x = -1;
@@ -973,7 +1214,7 @@ describe("CharacterController", () => {
       }
     });
 
-    it("retries creation after a scale edit makes the native step offset valid", () => {
+    it("keeps the native step offset valid after a Float32-scale edit", () => {
       const entity = engine.sceneManager.activeScene.createRootEntity("controller-rescale");
       try {
         entity.transform.setPosition(0, 10, 0);
@@ -984,7 +1225,7 @@ describe("CharacterController", () => {
         cc.collisionLayer = Layer.Layer6;
         const hit = new HitResult();
         const ray = new Ray(new Vector3(0, 10, 5), new Vector3(0, 0, -1));
-        expect(physics.raycast(ray, 10, Layer.Layer6, hit)).toBe(false);
+        expect(physics.raycast(ray, 10, Layer.Layer6, hit)).toBe(true);
 
         entity.transform.scale.y = 1 + 2 ** -24;
         expect(physics.raycast(ray, 10, Layer.Layer6, hit)).toBe(true);

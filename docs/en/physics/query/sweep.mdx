@@ -7,6 +7,12 @@ label: Physics
 
 Shape Casting is an advanced querying feature in physics engines that allows you to "cast" a three-dimensional shape along a specified direction to detect obstructions. Unlike [raycasting](/en/docs/physics/query/raycast) which uses an infinitely thin line, shape casting uses geometric volumes for detection, providing more accurate and practical obstruction information.
 
+Use `boxCastAll`, `sphereCastAll`, or `capsuleCastAll` with a reusable `HitResult[]` to collect all positive-distance hits. The order is unspecified.
+
+Pass `{ hitBackfaces: true }` to include back faces of triangle meshes in that cast. `HitResult.triangleIndex` returns the original triangle index for a triangle mesh, or `-1` when the hit has no triangle index.
+
+`collider.getBounds(out)` writes the synchronized world-space bounds. `collider.computePenetration(other, outDirection)` returns the depth and writes the direction to move this collider out of the other. Use overlap or penetration queries to detect shapes already intersecting at the start of a cast.
+
 ## Overview
 
 Galacean Physics Engine provides three shape casting functions:
@@ -201,7 +207,6 @@ capsuleCast(
 const characterCenter = new Vector3(0, 1, 0);
 const characterRadius = 0.5;
 const characterHeight = 1.8;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const jumpDirection = new Vector3(0, 1, 0);
 const jumpHeight = 2.0;
 
@@ -210,7 +215,6 @@ const jumpBlocked = physicsScene.capsuleCast(
   characterRadius,
   characterHeight,
   jumpDirection,
-  upright,
   jumpHeight,
   Layer.Everything
 );
@@ -229,7 +233,6 @@ if (physicsScene.capsuleCast(
   characterRadius, 
   characterHeight, 
   moveDirection, 
-  upright,
   stepDistance, 
   Layer.Everything,
   moveHit
@@ -253,7 +256,7 @@ if (physicsScene.capsuleCast(
 
 - **halfExtents** (boxCast) - Half-size of the box
 - **radius** (sphereCast/capsuleCast) - Radius of the sphere/capsule
-- **height** (capsuleCast) - Total height in world units, including both caps. If the height is at most twice the radius, the cast returns `false`. Use `sphereCast` for a sphere.
+- **height** (capsuleCast) - Total height in world units, including both caps. The default long axis is Y. If the height is at most twice the radius, the cast returns `false`. Use `sphereCast` for a sphere.
 - **orientation** (boxCast/capsuleCast) - Shape rotation (defaults to no rotation)
 
 ## Performance Optimization Tips
@@ -267,7 +270,6 @@ if (physicsScene.capsuleCast(
 // Performance optimization example
 class PhysicsQuery {
   private static readonly _hitResult = new HitResult();
-  private static readonly _upright = new Quaternion().rotateZ(Math.PI / 2);
   private static readonly _playerLayerMask = Layer.Layer0 | Layer.Layer1;
   
   static checkPlayerMovement(center: Vector3, direction: Vector3): boolean {
@@ -276,7 +278,6 @@ class PhysicsQuery {
       0.5,           // Fixed radius
       1.8,           // Total height
       direction,
-      this._upright,
       2.0,           // Limit detection distance
       this._playerLayerMask,  // Only check relevant layers
       this._hitResult         // Reuse result object

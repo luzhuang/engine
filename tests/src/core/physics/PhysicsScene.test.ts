@@ -9,6 +9,8 @@ import {
   HitResult,
   Layer,
   PhysicsScene,
+  PhysicsMaterial,
+  PhysicsMaterialCombineMode,
   Scene,
   Script,
   SphereCollider,
@@ -16,9 +18,16 @@ import {
   CharacterControllerGeometry
 } from "@galacean/engine-core";
 import { Ray, Vector3, Quaternion } from "@galacean/engine-math";
-import type { IPhysicsScene } from "@galacean/engine-design";
+import type { IPhysicsQueryFilter, IPhysicsScene } from "@galacean/engine-design";
 import { WebGLEngine } from "@galacean/engine";
 import { vi, describe, beforeAll, beforeEach, afterAll, expect, it, afterEach } from "vitest";
+
+const allNativeQueryLayers: IPhysicsQueryFilter = {
+  layerMask: Layer.Everything,
+  includeTriggers: true,
+  hitBackfaces: false,
+  excludedShapeIds: []
+};
 
 class CollisionTestScript extends Script {
   onCollisionEnter(other: Collision): void {}
@@ -145,6 +154,169 @@ describe("Physics Test", () => {
       const fixedTimeStep = 1 / 50;
       enginePhysX.sceneManager.scenes[0].physics.fixedTimeStep = fixedTimeStep;
       expect(enginePhysX.sceneManager.scenes[0].physics.fixedTimeStep).to.eq(fixedTimeStep);
+    });
+
+    it("configures solver and bounce threshold while creating a scene", () => {
+      const scene = new Scene(enginePhysX, "tgs", { solver: "tgs", bounceThreshold: 0 });
+      enginePhysX.sceneManager.addScene(scene);
+      const physics = scene.physics;
+      physics.autoSimulation = false;
+      physics.gravity.set(0, 0, 0);
+      const material = new PhysicsMaterial(enginePhysX);
+      material.bounciness = 1;
+      material.bounceCombine = PhysicsMaterialCombineMode.Maximum;
+
+      const wall = scene.createRootEntity("wall").addComponent(BoxCollider);
+      wall.material = material;
+      const entity = scene.createRootEntity("projectile");
+      entity.transform.setPosition(-1.1, 0, 0);
+      entity.addComponent(SphereCollider).material = material;
+      const body = entity.addComponent(Rigidbody);
+      body.linearVelocity.set(1, 0, 0);
+
+      try {
+        for (let step = 0; step < 20; step++) physics.step();
+        expect(body.linearVelocity.x).toBeCloseTo(-1);
+      } finally {
+        scene.destroy();
+        material.destroy();
+      }
+    });
+
+    it.each(["default", "static-kinematic"] as const)("applies the %s contact pair policy", (contactPairs) => {
+      const scene = new Scene(enginePhysX, contactPairs, { contactPairs });
+      enginePhysX.sceneManager.addScene(scene);
+      const physics = scene.physics;
+      physics.autoSimulation = false;
+
+      const onEnter = vi.fn();
+      const wall = scene.createRootEntity("wall");
+      wall.addComponent(BoxCollider);
+      wall.addComponent(
+        class extends Script {
+          onCollisionEnter = onEnter;
+        }
+      );
+
+      const mover = scene.createRootEntity("mover");
+      mover.transform.setPosition(-2, 0, 0);
+      mover.addComponent(BoxCollider);
+      const body = mover.addComponent(Rigidbody);
+      body.isKinematic = true;
+
+      try {
+        physics.step();
+        body.move(new Vector3(-0.5, 0, 0));
+        physics.step();
+        physics.step();
+        expect(onEnter).toHaveBeenCalledTimes(Number(contactPairs === "static-kinematic"));
+      } finally {
+        scene.destroy();
+      }
+    });
+
+    it("caps automatic steps and passes manual step durations to scripts", () => {
+      const root = enginePhysX.sceneManager.activeScene.createRootEntity();
+      const durations: number[] = [];
+      root.addComponent(
+        class extends Script {
+          onPhysicsUpdate(deltaTime: number): void {
+            durations.push(deltaTime);
+          }
+        }
+      );
+
+      let now = performance.now() + 1000;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+      const maximumDeltaTime = enginePhysX.time.maximumDeltaTime;
+      const maxSubSteps = physicsScene.maxSubSteps;
+      try {
+        physicsScene.fixedTimeStep = 1 / 64;
+        physicsScene.maxSubSteps = 2;
+        enginePhysX.time.maximumDeltaTime = 1;
+        enginePhysX.update();
+        expect(durations).toEqual([1 / 64, 1 / 64]);
+
+        physicsScene.autoSimulation = false;
+        now += 1000;
+        enginePhysX.update();
+        expect(durations).toHaveLength(2);
+        physicsScene.step(1 / 128);
+        expect(durations).toEqual([1 / 64, 1 / 64, 1 / 128]);
+      } finally {
+        clock.mockRestore();
+        enginePhysX.time.maximumDeltaTime = maximumDeltaTime;
+        physicsScene.autoSimulation = true;
+        physicsScene.maxSubSteps = maxSubSteps;
+        root.destroy();
+      }
+    });
+
+    it.each([false, true])("routes compound collider events to its owner when isTrigger=%s", (isTrigger) => {
+      const scene = enginePhysX.sceneManager.activeScene;
+      const root = scene.createRootEntity();
+      const body = root.createChild();
+      body.addComponent(Rigidbody).useGravity = false;
+      const child = body.createChild();
+      const collider = child.addComponent(BoxCollider);
+      collider.isTrigger = isTrigger;
+      const other = root.createChild().addComponent(BoxCollider);
+      const receivers: Entity[] = [];
+      class ContactListener extends Script {
+        onCollisionEnter(collision: Collision): void {
+          this.record(collision.selfCollider, collision.collider);
+        }
+        onTriggerEnter(other: Collider, self: Collider): void {
+          this.record(self, other);
+        }
+        private record(self: Collider, otherCollider: Collider): void {
+          if (self === collider && otherCollider === other) receivers.push(this.entity);
+        }
+      }
+
+      try {
+        child.addComponent(ContactListener);
+        body.addComponent(ContactListener);
+        physicsScene.autoSimulation = false;
+        physicsScene.step();
+        expect(receivers).toEqual([child, body]);
+      } finally {
+        physicsScene.autoSimulation = true;
+        root.destroy();
+      }
+    });
+
+    it("filters triggers and excluded shapes before selecting scene query hits", () => {
+      const scene = enginePhysX.sceneManager.activeScene;
+      const root = scene.createRootEntity();
+      const sensor = root.createChild().addComponent(BoxCollider);
+      sensor.isTrigger = true;
+      sensor.entity.transform.setPosition(1, 0, 0);
+      const excluded = root.createChild().addComponent(BoxCollider);
+      excluded.entity.transform.setPosition(3, 0, 0);
+      const target = root.createChild().addComponent(BoxCollider);
+      target.entity.transform.setPosition(5, 0, 0);
+
+      class CustomHit extends HitResult {}
+      const hit = new CustomHit();
+      const origin = new Vector3(-2, 0, 0);
+      const direction = new Vector3(1, 0, 0);
+      const ray = new Ray(origin, direction);
+      const filter = { includeTriggers: false, exclude: [excluded] };
+      try {
+        expect(physicsScene.raycast(ray, 10, hit)).toBe(true);
+        expect(hit.collider).toBe(sensor);
+        expect(physicsScene.raycast(ray, 10, filter, hit)).toBe(true);
+        expect(hit.collider).toBe(target);
+        expect(physicsScene.boxCast(origin, new Vector3(0.1, 0.1, 0.1), direction, 10, filter, hit)).toBe(true);
+        expect(hit.collider).toBe(target);
+        expect(physicsScene.overlapSphereAll(new Vector3(3, 0, 0), 3, filter)).toEqual([target]);
+        const hits: HitResult[] = [];
+        expect(physicsScene.raycastAll(ray, 10, filter, hits)).toBe(true);
+        expect(hits.map((entry) => entry.collider)).toEqual([target]);
+      } finally {
+        root.destroy();
+      }
     });
 
     it("keeps nested rigidbody poses independent after reparenting, disabling a body, and changing scenes", () => {
@@ -589,14 +761,14 @@ describe("Physics Test", () => {
 
       const nativeScene = (physicsScene as any)._nativePhysicsScene as IPhysicsScene;
       const nativeHitIds: number[] = [];
-      nativeScene.raycastAll(ray.origin, ray.direction, Number.MAX_VALUE, Layer.Everything, (shapeUniqueID) =>
+      nativeScene.raycastAll(ray.origin, ray.direction, Number.MAX_VALUE, allNativeQueryLayers, (shapeUniqueID) =>
         nativeHitIds.push(shapeUniqueID)
       );
       expect(nativeHitIds).to.have.length(2);
       expect(new Set(nativeHitIds).size).to.eq(2);
       const nestedHitIds: number[] = [];
       const nestedHits: HitResult[] = [];
-      nativeScene.raycastAll(ray.origin, ray.direction, 100, Layer.Everything, (shapeID) => {
+      nativeScene.raycastAll(ray.origin, ray.direction, 100, allNativeQueryLayers, (shapeID) => {
         nestedHitIds.push(shapeID);
         expect(physicsScene.raycastAll(ray, 100, Layer.Layer1, nestedHits)).to.eq(true);
         expect(nestedHits.map((hit) => hit.collider)).to.deep.equal([farShape]);
@@ -917,6 +1089,82 @@ describe("Physics Test", () => {
       }
     });
 
+    it("casts a finite segment using the same query filters", () => {
+      const root = enginePhysX.sceneManager.activeScene.createRootEntity("linecast");
+      const box = root.addComponent(BoxCollider);
+      root.transform.setPosition(0, 90, 0);
+      const start = new Vector3(-3, 90, 0);
+      const hit = new HitResult();
+
+      try {
+        expect(physicsScene.linecast(start, new Vector3(3, 90, 0), Layer.Everything, hit)).toBe(true);
+        expect(hit.collider).toBe(box);
+        expect(hit.distance).toBeCloseTo(2.5);
+        expect(physicsScene.linecast(start, new Vector3(-1, 90, 0), Layer.Everything, hit)).toBe(false);
+        expect(hit.collider).toBeNull();
+      } finally {
+        root.destroy();
+      }
+    });
+
+    it("keeps a query's direction and layer filter when an option reads the scene", () => {
+      const root = enginePhysX.sceneManager.activeScene.createRootEntity("filter-readback");
+      const target = root.addComponent(BoxCollider);
+      target.collisionLayer = Layer.Layer1;
+      root.transform.setPosition(0, 90, 0);
+      const horizontal = new Ray(new Vector3(-3, 90, 0), new Vector3(1, 0, 0));
+      const vertical = new Ray(new Vector3(0, 92, 0), new Vector3(0, -1, 0));
+      const hit = new HitResult();
+
+      try {
+        expect(
+          physicsScene.raycast(
+            horizontal,
+            10,
+            {
+              layerMask: Layer.Layer1,
+              get includeTriggers() {
+                expect(physicsScene.raycast(vertical, 10, Layer.Layer2)).toBe(false);
+                return false;
+              }
+            },
+            hit
+          )
+        ).toBe(true);
+        expect(hit.collider).toBe(target);
+      } finally {
+        root.destroy();
+      }
+    });
+
+    it("collects all positive sweep hits through the same query filters", () => {
+      const root = enginePhysX.sceneManager.activeScene.createRootEntity("sweep-all");
+      try {
+        for (const x of [1, 4, 7]) {
+          const child = root.createChild();
+          child.transform.setPosition(x, 60, 0);
+          child.addComponent(BoxCollider).isTrigger = x === 4;
+        }
+        const center = new Vector3(0, 60, 0);
+        const direction = new Vector3(1, 0, 0);
+        const halfExtents = new Vector3(0.6, 0.5, 0.5);
+        const hits = [new HitResult(), new HitResult(), new HitResult()];
+        const filter = { includeTriggers: false };
+
+        expect(physicsScene.boxCastAll(center, halfExtents, direction, hits, 12, filter)).toBe(true);
+        expect(hits.map((hit) => hit.entity!.transform.position.x)).toEqual([7]);
+        expect(hits[0].triangleIndex).toBe(-1);
+
+        expect(physicsScene.sphereCastAll(center, 0.6, direction, hits, 12)).toBe(true);
+        expect(hits.map((hit) => hit.entity!.transform.position.x).sort()).toEqual([4, 7]);
+
+        expect(physicsScene.capsuleCastAll(center, 0.6, 2, direction, hits, 5.5, filter)).toBe(false);
+        expect(hits).toHaveLength(0);
+      } finally {
+        root.destroy();
+      }
+    });
+
     it("query filters follow native shape and layer changes", () => {
       const scene = enginePhysX.sceneManager.activeScene;
       const physics = scene.physics;
@@ -1040,16 +1288,19 @@ describe("Physics Test", () => {
       nativeShape.setCollisionLayer(0);
       native.addCollider(nativeCollider);
       const hits: number[] = [];
-      native.raycastAll(new Vector3(-3, 3, 0), new Vector3(1, 0, 0), 100, Layer.Everything, (shapeID) =>
-        hits.push(shapeID)
-      );
-      expect(hits).to.deep.equal([id]);
-      expect(Array.from(native.overlapSphereAll(new Vector3(0, 3, 0), 1, Layer.Everything))).to.deep.equal([id]);
-      native.removeCollider(nativeCollider);
-      nativeCollider.removeShape(nativeShape);
-      nativeShape.destroy();
-      nativeCollider.destroy();
-      material.destroy();
+      try {
+        native.raycastAll(new Vector3(-3, 3, 0), new Vector3(1, 0, 0), 100, allNativeQueryLayers, (shapeID) =>
+          hits.push(shapeID)
+        );
+        expect(hits).to.deep.equal([id]);
+        expect(Array.from(native.overlapSphereAll(new Vector3(0, 3, 0), 1, allNativeQueryLayers))).to.deep.equal([id]);
+      } finally {
+        native.removeCollider(nativeCollider);
+        nativeCollider.removeShape(nativeShape);
+        nativeShape.destroy();
+        nativeCollider.destroy();
+        material.destroy();
+      }
     });
 
     it("raycastAll returns every hit beyond the native touch chunk", () => {
@@ -1097,10 +1348,10 @@ describe("Physics Test", () => {
       const reverseDirection = new Vector3(-1, 0, 0);
       const outer = new Map<number, number>();
       let innerCount = 0;
-      query.raycastAll(ray.origin, ray.direction, 1000, Layer.Everything, (id, distance) => {
+      query.raycastAll(ray.origin, ray.direction, 1000, allNativeQueryLayers, (id, distance) => {
         outer.set(id, distance);
         if (innerCount === 0) {
-          query.raycastAll(reverseOrigin, reverseDirection, 1000, Layer.Everything, () => innerCount++);
+          query.raycastAll(reverseOrigin, reverseDirection, 1000, allNativeQueryLayers, () => innerCount++);
         }
       });
       expect(innerCount).toBe(hitCount);
@@ -1541,7 +1792,7 @@ describe("Physics Test", () => {
       ).to.eq(false);
 
       // Test capsuleCast with rotation
-      Quaternion.rotationEuler(0, Math.PI / 4, 0, orientation);
+      Quaternion.rotationEuler(0, 0, Math.PI / 4, orientation);
       center.set(2, 0, 0);
       direction.set(-1, 0, 0);
       expect(
@@ -1576,7 +1827,7 @@ describe("Physics Test", () => {
           outHitResult
         )
       ).to.eq(true);
-      expect(outHitResult.distance).to.be.eq(0.5);
+      expect(outHitResult.distance).to.be.eq(1);
       expect(outHitResult.collider).to.be.eq(boxShape2);
 
       // Test capsuleCast with parallel direction
@@ -1598,7 +1849,7 @@ describe("Physics Test", () => {
       root.destroy();
     });
 
-    it("uses the total height in capsule sweeps and overlaps", () => {
+    it("uses total height along Y by default in capsule sweeps and overlaps", () => {
       const scene = enginePhysX.sceneManager.activeScene;
       const physics = scene.physics;
       const root = scene.createRootEntity();
@@ -1607,16 +1858,18 @@ describe("Physics Test", () => {
 
       const radius = 0.5;
       const height = 2;
-      const center = new Vector3(-5, 0, 0);
+      const center = new Vector3(0, -5, 0);
       const hit = new HitResult();
-      expect(physics.capsuleCast(center, radius, height, new Vector3(1, 0, 0), 10, hit)).toBe(true);
+      expect(physics.capsuleCast(center, radius, height, new Vector3(0, 1, 0), 10, hit)).toBe(true);
       expect(hit.collider).toBe(target);
       expect(hit.distance).toBeCloseTo(3.5, 4);
 
-      center.x = -1.75;
+      center.y = -1.75;
       expect(physics.overlapCapsuleAll(center, radius, height)).toEqual([]);
-      center.x = -1.25;
+      center.y = -1.25;
       expect(physics.overlapCapsuleAll(center, radius, height)).toEqual([target]);
+      const sideways = new Quaternion().rotateZ(-Math.PI / 2);
+      expect(physics.overlapCapsuleAll(center, radius, height, sideways)).toEqual([]);
 
       root.destroy();
     });
@@ -1960,27 +2213,48 @@ describe("Physics Test", () => {
     });
 
     describe("Collision Test", () => {
-      it("Dynamic Trigger vs Dynamic Trigger", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
+      it.each([
+        ["static", "static", false],
+        ["dynamic", "dynamic", true],
+        ["static", "dynamic", true],
+        ["kinematic", "static", true],
+        ["kinematic", "dynamic", true],
+        ["kinematic", "kinematic", true]
+      ] as const)("reports trigger overlaps for %s and %s when eligible", (first, second, emits) => {
+        const root = enginePhysX.sceneManager.activeScene.createRootEntity("trigger-pair");
+        root.transform.setPosition(0, 1000, 0);
+        const a = root.createChild("first");
+        const b = root.createChild("second");
+        const enter = vi.fn();
+        const stay = vi.fn();
+        const exit = vi.fn();
+        const collision = vi.fn();
+        a.addComponent(
+          class extends Script {
+            onTriggerEnter = enter;
+            onTriggerStay = stay;
+            onTriggerExit = exit;
+            onCollisionEnter = collision;
+          }
+        );
+        setColliderProps(a, first !== "static", true, first === "kinematic");
+        setColliderProps(b, second !== "static", true, second === "kinematic");
 
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
+        physicsScene.autoSimulation = false;
+        try {
+          physicsScene.step();
+          physicsScene.step();
+          b.transform.setPosition(5, 0, 0);
+          physicsScene.step();
 
-        // Test that collision works correctly, both A,B are dynamic and trigger.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, true, true, false);
-        setColliderProps(entity2, true, true, false);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
+          expect(enter).toHaveBeenCalledTimes(Number(emits));
+          expect(stay).toHaveBeenCalledTimes(Number(emits));
+          expect(exit).toHaveBeenCalledTimes(Number(emits));
+          expect(collision).not.toHaveBeenCalled();
+        } finally {
+          physicsScene.autoSimulation = true;
+          root.destroy();
+        }
       });
 
       it("Dynamic vs Dynamic", () => {
@@ -2001,29 +2275,6 @@ describe("Physics Test", () => {
         expect(collisionTestScript.onCollisionEnter).toHaveBeenCalled();
         expect(collisionTestScript.onCollisionStay).toHaveBeenCalled();
         expect(collisionTestScript.onCollisionExit).toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
-      });
-
-      it("Static Trigger vs Static Trigger", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
-
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
-
-        // Test that collision works correctly, both A,B are static and trigger.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, false, true, false);
-        setColliderProps(entity2, false, true, false);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
@@ -2070,29 +2321,6 @@ describe("Physics Test", () => {
         expect(collisionTestScript.onCollisionEnter).toHaveBeenCalled();
         expect(collisionTestScript.onCollisionStay).toHaveBeenCalled();
         expect(collisionTestScript.onCollisionExit).toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
-      });
-
-      it("Static Trigger vs Dynamic Trigger", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
-
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
-
-        // Test that collision works correctly, A is static and B is dynamic, both A,B are trigger.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, false, true, false);
-        setColliderProps(entity2, true, true, false);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
         expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
@@ -2236,29 +2464,6 @@ describe("Physics Test", () => {
         expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
       });
 
-      it("Dynamic Trigger Kinematic vs Dynamic", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
-
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
-
-        // Test that collision works correctly, both A,B are dynamic, trigger, kinematic.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, true, true, true);
-        setColliderProps(entity2, true, true, true);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
-      });
-
       it("Static Trigger vs Dynamic Kinematic", () => {
         const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
 
@@ -2318,52 +2523,6 @@ describe("Physics Test", () => {
         watchCollisionCallbacks(collisionTestScript);
         setColliderProps(entity1, true, false, true);
         setColliderProps(entity2, true, false, true);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
-      });
-
-      it("Dynamic Trigger Kinematic vs Static Trigger", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
-
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
-
-        // Test that collision works correctly, A is dynamic, trigger and kinematic, B is static and trigger.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, true, true, true);
-        setColliderProps(entity2, false, true, false);
-        updatePhysics(physicsMgr);
-
-        expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onCollisionExit).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerEnter).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerStay).not.toHaveBeenCalled();
-        expect(collisionTestScript.onTriggerExit).not.toHaveBeenCalled();
-      });
-
-      it("Dynamic Trigger Kinematic vs Dynamic Trigger", () => {
-        const physicsMgr = enginePhysX.sceneManager.scenes[0].physics;
-
-        const root = enginePhysX.sceneManager.activeScene.createRootEntity("root");
-        const raycastTestRoot = root.createChild("root_collisionTest");
-        const entity1 = raycastTestRoot.createChild("entity1");
-        const entity2 = raycastTestRoot.createChild("entity2");
-        const collisionTestScript = entity1.addComponent(CollisionTestScript);
-
-        // Test that collision works correctly, A is dynamic, trigger and kinematic, B is dynamic and trigger.
-        watchCollisionCallbacks(collisionTestScript);
-        setColliderProps(entity1, true, true, true);
-        setColliderProps(entity2, true, true, false);
         updatePhysics(physicsMgr);
 
         expect(collisionTestScript.onCollisionEnter).not.toHaveBeenCalled();

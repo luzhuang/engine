@@ -17,11 +17,9 @@ fixedTimeStep: number = 1 / 60;
 
 ### Update Mechanism
 
-- In each rendering frame, the physics engine updates according to the fixed time step [fixedTimeStep](/apis/core/#PhysicsScene-fixedTimeStep)
-- If the actual frame interval is greater than `fixedTimeStep`:
-  - Multiple physics updates will be performed until catching up with the actual time
-  - The maximum update time per frame is limited by `engine.time.maximumDeltaTime`
-- If the actual frame interval is less than `fixedTimeStep`, it accumulates to the next frame
+Each Engine update can run up to `scene.physics.maxSubSteps` fixed steps (8 by default). Extra whole steps are dropped and the fractional remainder carries into the next frame.
+
+Set `scene.physics.autoSimulation = false` to drive an active scene manually. Call `scene.physics.step()` for one fixed step, or `scene.physics.step(seconds)` to supply its duration.
 
 ### Physics Update Callback
 
@@ -31,7 +29,7 @@ export class Script extends Component {
   /**
    * Called before physics calculations, the number of calls depends on the physics update frequency
    */
-  onPhysicsUpdate(): void {}
+  onPhysicsUpdate(deltaTime: number): void {}
 }
 ```
 
@@ -48,6 +46,8 @@ The execution order when the PhysicsScene is updated:
 3. Simulate one fixed step
 4. Write the simulated poses of all enabled [Rigidbodies](/en/docs/physics/collider/rigidbody) back to their `Entity`
 5. Dispatch collision and trigger events
+
+Use `new Scene(engine, name, { solver: "tgs", contactPairs: "all", bounceThreshold: 2 })` to configure a scene at creation. Pass the same settings as `physicsScene` in the Engine configuration to configure its default scene. The defaults are PGS, ordinary dynamic contact pairs, and a bounce threshold of 2 world units per second.
 
 ## Setting Scene Gravity
 
@@ -71,4 +71,8 @@ The physics scene provides various spatial query functions for detecting and ana
 - **[Raycasting](/en/docs/physics/query/raycast)** - Precise point-to-point detection, suitable for picking and aiming scenarios
 - **[Shape Casting](/en/docs/physics/query/sweep)** - Cast geometric shapes along directions, suitable for movement prediction and path planning
 - **[Overlap Detection](/en/docs/physics/query/overlap)** - Detect overlapping objects within regions, suitable for triggers and area attacks
+
+Scene queries include triggers by default. Pass `{ includeTriggers: false }` to skip them. The same filter accepts a collision `layerMask` and an `exclude` list of colliders. Set `collider.isSceneQuery = false` to exclude a collider from all scene queries.
+
+Set layer collision rules on `scene.physics`. The setting affects only that scene and also applies to pairs already in contact.
 

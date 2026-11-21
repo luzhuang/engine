@@ -1,3 +1,9 @@
+export {
+  ConfigurableJoint,
+  ConfigurableJointAxis,
+  ConfigurableJointDrive,
+  ConfigurableJointMotion
+} from "./ConfigurableJoint";
 export { Joint } from "./Joint";
 export { FixedJoint } from "./FixedJoint";
 export { HingeJoint } from "./HingeJoint";

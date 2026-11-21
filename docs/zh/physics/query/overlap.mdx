@@ -196,14 +196,12 @@ overlapCapsuleAll(
 const characterCenter = new Vector3(0, 1, 0);
 const attackRadius = 1.0;
 const attackHeight = 4.0;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const enemyLayer = Layer.Layer3; // 使用实际存在的层
 
 const attackTargets = physicsScene.overlapCapsuleAll(
   characterCenter,
   attackRadius,
   attackHeight,
-  upright,
   enemyLayer
 );
 
@@ -225,7 +223,6 @@ const charactersInPortal = physicsScene.overlapCapsuleAll(
   portalCenter,
   portalRadius,
   portalHeight,
-  upright,
   characterLayer
 );
 
@@ -246,7 +243,6 @@ class ElevatorDetector {
       elevatorCenter,
       1.2,  // 胶囊半径
       4.4,  // 胶囊总高
-      upright,
       Layer.Layer0 | Layer.Layer4, // 使用实际层组合
       this._passengersBuffer
     );
@@ -268,7 +264,7 @@ class ElevatorDetector {
 
 - **halfExtents** (overlapBoxAll) - 盒子的半尺寸
 - **radius** (overlapSphereAll/overlapCapsuleAll) - 球体/胶囊的半径
-- **height** (overlapCapsuleAll) - 胶囊总高（世界单位），包含两端半球。高度小于或等于两倍半径时返回空结果。球形重叠查询请使用 `overlapSphereAll`。
+- **height** (overlapCapsuleAll) - 胶囊总高（世界单位），包含两端半球，默认长轴沿 Y。高度小于或等于两倍半径时返回空结果。球形重叠查询请使用 `overlapSphereAll`。
 - **orientation** (overlapBoxAll/overlapCapsuleAll) - 形状的旋转（默认为无旋转）
 
 ## 返回值说明

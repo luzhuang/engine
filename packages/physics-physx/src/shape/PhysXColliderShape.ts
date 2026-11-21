@@ -68,6 +68,11 @@ export abstract class PhysXColliderShape implements IColliderShape {
     this._pxShape.setGroup(layer);
   }
 
+  /** {@inheritDoc IColliderShape.setLayerOverrides } */
+  setLayerOverrides(include: number, exclude: number): void {
+    this._pxShape.setLayerOverrides(include, exclude);
+  }
+
   /**
    * {@inheritDoc IColliderShape.setIsTrigger }
    */
@@ -83,6 +88,16 @@ export abstract class PhysXColliderShape implements IColliderShape {
    */
   setIsSceneQuery(value: boolean): void {
     this._pxShape.setSceneQueryEnabled(value);
+  }
+
+  /** {@inheritDoc IColliderShape.getWorldBounds } */
+  getWorldBounds(outMin: Vector3, outMax: Vector3): void {
+    this._pxShape.getWorldBounds(outMin, outMax);
+  }
+
+  /** {@inheritDoc IColliderShape.computePenetration } */
+  computePenetration(other: PhysXColliderShape, outDirection: Vector3): number {
+    return this._pxShape.computePenetration(other._pxShape, outDirection);
   }
 
   /**

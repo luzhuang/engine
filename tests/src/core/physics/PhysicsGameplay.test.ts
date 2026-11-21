@@ -347,7 +347,7 @@ describe("Physics gameplay integration", () => {
     hinge.useLimits = true;
     const limits = new JointLimits();
     limits.min = 0;
-    limits.max = 90;
+    limits.max = Math.PI / 2;
     hinge.limits = limits;
     hinge.useMotor = true;
     const motor = new JointMotor();
@@ -392,8 +392,8 @@ describe("Physics gameplay integration", () => {
     step(60);
 
     // Door opened and clamped at 90 degrees
-    expect(hinge.angle).toBeGreaterThan(80);
-    expect(hinge.angle).toBeLessThanOrEqual(92);
+    expect(hinge.angle).toBeGreaterThan((4 * Math.PI) / 9);
+    expect(hinge.angle).toBeLessThanOrEqual(Math.PI / 2 + 0.035);
     // Spring weight stayed suspended near ceiling (y ~ 3.5) instead of free-falling below 0
     expect(weight.transform.worldPosition.y).toBeGreaterThan(2.5);
     expect(weight.transform.worldPosition.y).toBeLessThan(5.0);

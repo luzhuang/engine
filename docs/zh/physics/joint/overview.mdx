@@ -5,7 +5,7 @@ type: 物理
 label: Physics
 ---
 
-关节组件用于模拟刚体之间或刚体与世界空间任意点之间的连接关系。通过施加力来限制运动自由度，从而实现特定的物理效果。目前，Galacean支持以下三种关节组件：
+关节组件用于模拟刚体之间或刚体与世界空间任意点之间的连接关系。通过施加力来限制运动自由度，从而实现特定的物理效果。目前，Galacean 支持以下四种关节组件：
 
 1. [固定关节](/docs/physics/joint/fixedJoint)（[FixedJoint](/apis/core/#FixedJoint)）  
    固定关节完全限制了两个刚体之间的相对运动，使其保持固定的相对位置和方向。当需要实现能够分离的物体，或在无需层级父子结构的情况下实现同步移动时，这种关节十分适用。
@@ -21,6 +21,9 @@ label: Physics
    铰链关节允许物体绕着固定的轴自由旋转，常用于实现门铰链、车轮、钟摆等需要绕固定轴旋转的物理效果。
 
    <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*yZPrRohs-VcAAAAAAAAAAAAAesJ_AQ/original" />
+
+4. [可配置关节](/docs/physics/joint/configurableJoint)（[ConfigurableJoint](/apis/core/#ConfigurableJoint)）
+   独立控制六个运动自由度，可驱动连接端达到目标相对位姿或速度。
 
 ## 属性说明
 
@@ -42,9 +45,14 @@ label: Physics
 
    - `breakForce`：关节能承受的最大力
    - `breakTorque`：关节能承受的最大扭矩
+   - `isBroken`：当前约束是否已断裂
+   - `Script.onJointBreak(joint)`：约束断裂的物理步结束后，通知关节所属实体的脚本
+   - `getReactionForce(force, torque)`：将最近一步的求解力和力矩写入传入的向量
 
 4. **质量计算干预**：
-   - `connectedMassScale` 和 `massScale`：用于调整连接刚体和主体刚体的质量影响
+   - `connectedMassScale` 和 `massScale` 分别缩放连接刚体和自身刚体在求解时的逆质量与逆惯量。
+   - `enableCollision` 允许相连的刚体互相碰撞。
+   - `enablePreprocessing` 在求解关节约束前运行预处理。
 
 ## 脚本使用
 

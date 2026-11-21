@@ -1,5 +1,5 @@
-import { ICharacterController } from "@galacean/engine-design";
-import { Vector3 } from "@galacean/engine";
+import { ICharacterController, IControllerMoveHits } from "@galacean/engine-design";
+import { ControllerClimbingMode, Vector3 } from "@galacean/engine";
 import { PhysXPhysics } from "./PhysXPhysics";
 import { PhysXPhysicsMaterial } from "./PhysXPhysicsMaterial";
 import { PhysXPhysicsScene } from "./PhysXPhysicsScene";
@@ -27,8 +27,11 @@ export class PhysXCharacterController implements ICharacterController {
   private _worldPosition = new Vector3();
   private _contactOffset = 0.02;
   private _collisionLayer = 0;
+  private _includeLayers = 0;
+  private _excludeLayers = 0;
   private _isSceneQuery = true;
   private _stepOffset = 0.5;
+  private _climbingMode = ControllerClimbingMode.Constrained;
   private _nonWalkableMode = 0;
   private _upDirection = new Vector3(0, 1, 0);
   private _slopeLimit = 45;
@@ -106,6 +109,13 @@ export class PhysXCharacterController implements ICharacterController {
     }
   }
 
+  /** {@inheritDoc ICharacterController.setLayerOverrides } */
+  setLayerOverrides(include: number, exclude: number): void {
+    this._includeLayers = include;
+    this._excludeLayers = exclude;
+    this._pxController?.setLayerOverrides(include, exclude);
+  }
+
   /**
    * {@inheritDoc ICharacterController.setIsSceneQuery }
    */
@@ -117,8 +127,69 @@ export class PhysXCharacterController implements ICharacterController {
   /**
    * {@inheritDoc ICharacterController.move }
    */
-  move(disp: Vector3, minDist: number, elapsedTime: number): number {
-    return this._pxController?.move(disp, minDist, elapsedTime) ?? 0;
+  move(disp: Vector3, minDist: number, elapsedTime: number, outHits?: IControllerMoveHits): number {
+    const controller = this._pxController;
+    const flags = controller?.move(disp, minDist, elapsedTime, outHits !== undefined) ?? 0;
+    if (outHits) {
+      outHits.count = 0;
+      const values: Float64Array | null = controller && this._physXPhysics._physX.getControllerMoveHits();
+      if (values) {
+        const hits = outHits.hits;
+        for (let i = 1, end = values[0]; i < end; i += 11) {
+          const index = outHits.count++;
+          const hit = (hits[index] ||= {
+            colliderId: 0,
+            point: new Vector3(),
+            normal: new Vector3(),
+            moveDirection: new Vector3(),
+            moveLength: 0
+          });
+          hit.colliderId = values[i];
+          hit.point.set(values[i + 1], values[i + 2], values[i + 3]);
+          hit.normal.set(values[i + 4], values[i + 5], values[i + 6]);
+          hit.moveDirection.set(values[i + 7], values[i + 8], values[i + 9]);
+          hit.moveLength = values[i + 10];
+        }
+      }
+    }
+    return flags;
+  }
+
+  /**
+   * {@inheritDoc ICharacterController.resize }
+   */
+  resize(height: number, stepOffset: number): boolean {
+    const controller = this._pxController;
+    if (!controller) return false;
+    height = Math.fround(height);
+    const box = this._isBox;
+    const maximum = box ? 2 * height : Math.fround(height + 2 * this._radius);
+    this._syncStepOffset(stepOffset, maximum, box);
+    controller.resize(height);
+    if (box) this._halfExtents.y = height;
+    else this._height = height;
+    this._applyControllerTarget(controller);
+    return true;
+  }
+
+  /**
+   * {@inheritDoc ICharacterController.getFootPosition }
+   */
+  getFootPosition(out: Vector3): boolean {
+    const controller = this._pxController;
+    if (!controller) return false;
+    controller.getFootPosition(out);
+    return true;
+  }
+
+  /**
+   * {@inheritDoc ICharacterController.setFootPosition }
+   */
+  setFootPosition(position: Vector3): boolean {
+    const controller = this._pxController;
+    if (!controller?.setFootPosition(position)) return false;
+    this._applyControllerTarget(controller);
+    return true;
   }
 
   /**
@@ -152,6 +223,14 @@ export class PhysXCharacterController implements ICharacterController {
   setNonWalkableMode(flag: number): void {
     this._nonWalkableMode = flag;
     this._pxController?.setNonWalkableMode(flag);
+  }
+
+  /**
+   * {@inheritDoc ICharacterController.setClimbingMode }
+   */
+  setClimbingMode(mode: number): void {
+    this._climbingMode = mode;
+    if (!this._isBox) this._pxController?.setClimbingMode(mode);
   }
 
   /**
@@ -200,11 +279,7 @@ export class PhysXCharacterController implements ICharacterController {
 
   private _syncStepOffset(offset: number, maximum: number, box: boolean) {
     // PhysX validates the step against the rounded geometry only at creation.
-    offset = Math.fround(offset);
-    if (!(offset >= 0 && offset <= maximum && Number.isFinite(offset))) {
-      this._stepOffset = -1;
-      return null;
-    }
+    offset = Math.fround(Math.min(offset, maximum, 3.4028234663852886e38));
     const controller = this._isBox === box ? this._pxController : null;
     if (offset !== this._stepOffset) {
       this._stepOffset = offset;
@@ -214,7 +289,6 @@ export class PhysXCharacterController implements ICharacterController {
   }
 
   private _rebuild(): void {
-    // Retry creation when the geometry changes after a rejected descriptor.
     if (this._scene) {
       this.getWorldPosition(this._worldPosition);
       this._destroyPXController();
@@ -223,12 +297,6 @@ export class PhysXCharacterController implements ICharacterController {
   }
 
   private _createPXController(): void {
-    if (this._stepOffset < 0) {
-      console.error(
-        "CharacterController: stepOffset must be representable by PhysX and within the controller's world height."
-      );
-      return;
-    }
     const physX = this._physXPhysics._physX;
     const scene = this._scene!;
     let desc: any;
@@ -242,7 +310,8 @@ export class PhysXCharacterController implements ICharacterController {
       desc = new physX.PxCapsuleControllerDesc();
       desc.radius = this._radius;
       desc.height = this._height;
-      desc.climbingMode = 1; // Constrained
+      const mode = physX.PxCapsuleClimbingMode;
+      desc.climbingMode = this._climbingMode === ControllerClimbingMode.Easy ? mode.eEASY : mode.eCONSTRAINED;
     }
     // Set the initial descriptor position so queries see the correct pose before the first step.
     const position = PhysXCharacterController._tempVec;
@@ -264,7 +333,11 @@ export class PhysXCharacterController implements ICharacterController {
     this._pxController = pxController;
     pxController.setUUID(this._id);
     pxController.setSceneQueryEnabled(this._isSceneQuery);
+    if (this._includeLayers || this._excludeLayers) {
+      pxController.setLayerOverrides(this._includeLayers, this._excludeLayers);
+    }
     const actor = pxController.getActor();
+    actor.setRigidBodyFlag(physX.PxRigidBodyFlag.eUSE_KINEMATIC_TARGET_FOR_SCENE_QUERIES, true);
     physX.setGroup(actor, this._collisionLayer);
     actor.delete();
     scene._addColliderShape(this._id);
@@ -281,7 +354,11 @@ export class PhysXCharacterController implements ICharacterController {
 
   private _syncControllerPose(controller: any, position: Vector3): void {
     if (!controller.setPosition(position)) return;
-    // Apply the kinematic target immediately so queries see the updated pose before the next step.
+    this._applyControllerTarget(controller);
+  }
+
+  private _applyControllerTarget(controller: any): void {
+    // Teleports and resizes move the actor directly instead of sweeping it to the target during simulation.
     const actor = controller.getActor();
     actor.setGlobalPose(actor.getKinematicTarget(), true);
     actor.delete();

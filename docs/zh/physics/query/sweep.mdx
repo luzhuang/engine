@@ -7,6 +7,12 @@ label: Physics
 
 形状投射（Shape Casting）是物理引擎中的高级查询功能，可以沿指定方向"投射"一个三维形状来检测阻挡。与 [射线检测](/docs/physics/query/raycast) 使用无限细的线不同，形状投射使用具有体积的几何体进行检测，能够提供更精确和实用的阻挡信息。
 
+用 `boxCastAll`、`sphereCastAll` 或 `capsuleCastAll` 将所有正距离命中写入可复用的 `HitResult[]`。返回顺序未定义。
+
+向投射查询传入 `{ hitBackfaces: true }`，可命中三角网格背面。`HitResult.triangleIndex` 返回原始网格的三角形索引，无三角形索引时返回 `-1`。
+
+`collider.getBounds(out)` 写入同步后的世界空间包围盒。`collider.computePenetration(other, outDirection)` 返回穿透深度，并写入把当前碰撞体移出另一碰撞体的方向。投射起点已重叠时，使用重叠或穿透查询。
+
 ## 概述
 
 Galacean 物理引擎提供三种形状投射功能：
@@ -199,7 +205,6 @@ capsuleCast(
 const characterCenter = new Vector3(0, 1, 0);
 const characterRadius = 0.5;
 const characterHeight = 1.8;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const jumpDirection = new Vector3(0, 1, 0);
 const jumpHeight = 2.0;
 
@@ -208,7 +213,6 @@ const jumpBlocked = physicsScene.capsuleCast(
   characterRadius,
   characterHeight,
   jumpDirection,
-  upright,
   jumpHeight,
   Layer.Everything
 );
@@ -227,7 +231,6 @@ if (physicsScene.capsuleCast(
   characterRadius, 
   characterHeight, 
   moveDirection, 
-  upright,
   stepDistance, 
   Layer.Everything,
   moveHit
@@ -251,7 +254,7 @@ if (physicsScene.capsuleCast(
 
 - **halfExtents** (boxCast) - 盒子的半尺寸
 - **radius** (sphereCast/capsuleCast) - 球体/胶囊的半径
-- **height** (capsuleCast) - 胶囊总高（世界单位），包含两端半球。高度小于或等于两倍半径时返回 `false`。球形投射请使用 `sphereCast`。
+- **height** (capsuleCast) - 胶囊总高（世界单位），包含两端半球，默认长轴沿 Y。高度小于或等于两倍半径时返回 `false`。球形投射请使用 `sphereCast`。
 - **orientation** (boxCast/capsuleCast) - 形状的旋转（默认为无旋转）
 
 ## 性能优化建议
@@ -265,7 +268,6 @@ if (physicsScene.capsuleCast(
 // 性能优化示例
 class PhysicsQuery {
   private static readonly _hitResult = new HitResult();
-  private static readonly _upright = new Quaternion().rotateZ(Math.PI / 2);
   private static readonly _playerLayerMask = Layer.Layer0 | Layer.Layer1;
   
   static checkPlayerMovement(center: Vector3, direction: Vector3): boolean {
@@ -274,7 +276,6 @@ class PhysicsQuery {
       0.5,           // 固定半径
       1.8,           // 总高
       direction,
-      this._upright,
       2.0,           // 限制检测距离
       this._playerLayerMask,  // 只检测相关层
       this._hitResult         // 重用结果对象

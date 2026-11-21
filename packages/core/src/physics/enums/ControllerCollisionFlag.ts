@@ -1,7 +1,9 @@
 /**
- * The up axis of the collider shape.
+ * Directions of contact reported by a character controller move.
  */
 export enum ControllerCollisionFlag {
+  /** No contact was reported. */
+  None = 0,
   /** Character is colliding to the sides. */
   Sides = 1,
   /** Character has collision above. */

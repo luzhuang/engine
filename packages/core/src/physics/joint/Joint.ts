@@ -4,6 +4,7 @@ import { Matrix, Quaternion, Vector3 } from "@galacean/engine-math";
 import { Component } from "../../Component";
 import { DependentMode, dependentComponents } from "../../ComponentsDependencies";
 import { Entity } from "../../Entity";
+import { Scene } from "../../Scene";
 import { TransformModifyFlags } from "../../Transform";
 import { ignoreClone } from "../../clone/CloneDecorators";
 import type { ICloneHook } from "../../clone/ICloneHook";
@@ -24,8 +25,12 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   private _connectedBody: Rigidbody | null = null;
   @ignoreClone
   protected _nativeJoint: IJoint | null = null;
+  @ignoreClone
+  private _breakEventId = 0;
   private _force = Infinity;
   private _torque = Infinity;
+  private _enableCollision = false;
+  private _enablePreprocessing = true;
   private _automaticConnectedAnchor = true;
   private _connectedAnchorAuthored = false;
   @ignoreClone
@@ -117,16 +122,17 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   }
 
   /**
-   * The scale to apply to the mass of the connected body for resolving this constraint.
-   * @throws When the value is not positive and finite.
+   * The multiplier for the connected body’s inverse mass and inverse inertia during constraint solving.
+   * @throws When the value is not a positive, finite Float32.
    */
   get connectedMassScale(): number {
     return this._connectedBodyInfo.massScale;
   }
 
   set connectedMassScale(value: number) {
-    if (!(value > 0 && Number.isFinite(value))) {
-      throw new Error("Joint connectedMassScale must be positive and finite.");
+    const nativeScale = Math.fround(value);
+    if (!(nativeScale > 0 && Number.isFinite(nativeScale))) {
+      throw new Error("Joint connectedMassScale must be a positive, finite Float32.");
     }
     if (value !== this._connectedBodyInfo.massScale) {
       this._connectedBodyInfo.massScale = value;
@@ -138,16 +144,17 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   }
 
   /**
-   * The scale to apply to the mass of this body for resolving this constraint.
-   * @throws When the value is not positive and finite.
+   * The multiplier for this body’s inverse mass and inverse inertia during constraint solving.
+   * @throws When the value is not a positive, finite Float32.
    */
   get massScale(): number {
     return this._bodyInfo.massScale;
   }
 
   set massScale(value: number) {
-    if (!(value > 0 && Number.isFinite(value))) {
-      throw new Error("Joint massScale must be positive and finite.");
+    const nativeScale = Math.fround(value);
+    if (!(nativeScale > 0 && Number.isFinite(nativeScale))) {
+      throw new Error("Joint massScale must be a positive, finite Float32.");
     }
     if (value !== this._bodyInfo.massScale) {
       this._bodyInfo.massScale = value;
@@ -159,30 +166,38 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   }
 
   /**
-   * The scale to apply to the inverse inertia of the connected body for resolving this constraint.
+   * Whether the two connected bodies can collide with each other.
+   * @defaultValue false
    */
-  get connectedInertiaScale(): number {
-    return this._connectedBodyInfo.inertiaScale;
+  get enableCollision(): boolean {
+    return this._enableCollision;
   }
 
-  set connectedInertiaScale(value: number) {
-    if (value !== this._connectedBodyInfo.inertiaScale) {
-      this._connectedBodyInfo.inertiaScale = value;
-      this._nativeJoint?.setConnectedInertiaScale(value);
+  set enableCollision(value: boolean) {
+    if (this._enableCollision !== value) {
+      this._enableCollision = value;
+      if (this._nativeJoint) {
+        this._nativeJoint.setEnableCollision(value);
+        this._wakeBodies();
+      }
     }
   }
 
   /**
-   * The scale to apply to the inverse inertia of this body for resolving this constraint.
+   * Whether the solver preprocesses the constraint.
+   * @defaultValue true
    */
-  get inertiaScale(): number {
-    return this._bodyInfo.inertiaScale;
+  get enablePreprocessing(): boolean {
+    return this._enablePreprocessing;
   }
 
-  set inertiaScale(value: number) {
-    if (value !== this._bodyInfo.inertiaScale) {
-      this._bodyInfo.inertiaScale = value;
-      this._nativeJoint?.setInertiaScale(value);
+  set enablePreprocessing(value: boolean) {
+    if (this._enablePreprocessing !== value) {
+      this._enablePreprocessing = value;
+      if (this._nativeJoint) {
+        this._nativeJoint.setEnablePreprocessing(value);
+        this._wakeBodies();
+      }
     }
   }
 
@@ -214,6 +229,29 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     }
   }
 
+  /**
+   * Whether the current physics constraint has broken.
+   * @remarks Disabling and re-enabling the joint creates a new constraint.
+   */
+  get isBroken(): boolean {
+    return this._nativeJoint?.isBroken() ?? false;
+  }
+
+  /**
+   * Writes the constraint force and torque from the most recent physics step.
+   * @param force - Output vector for force, in newtons
+   * @param torque - Output vector for torque, in newton-metres
+   * @remarks Both outputs are set to zero while the constraint is inactive.
+   */
+  getReactionForce(force: Vector3, torque: Vector3): void {
+    if (this._nativeJoint) {
+      this._nativeJoint.getReactionForce(force, torque);
+    } else {
+      force.set(0, 0, 0);
+      torque.set(0, 0, 0);
+    }
+  }
+
   constructor(entity: Entity) {
     super(entity);
     this._onAnchorChanged = this._onAnchorChanged.bind(this);
@@ -238,9 +276,9 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   /**
    * @internal
    */
-  override _onDisableInScene(): void {
+  override _onDisableInScene(scene: Scene): void {
     this.entity.getComponent(Rigidbody)!._detachJoint(this);
-    this._destroyNativeJoint();
+    this._destroyNativeJoint(scene);
   }
 
   /**
@@ -281,7 +319,7 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     const connectedBody = this._connectedBody;
     const connectedActor = connectedBody?._getRegisteredActor(scene) ?? null;
     if (!bodyActor || (connectedBody && !connectedActor)) {
-      this._destroyNativeJoint();
+      this._destroyNativeJoint(scene);
       return;
     }
     const nativeJoint = this._nativeJoint;
@@ -290,6 +328,8 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
       this._syncConnectedFrame();
     } else {
       const joint = (this._nativeJoint = this._createJoint(bodyActor));
+      this._breakEventId = scene.physics._registerJoint(this);
+      joint.setBreakEventId(this._breakEventId);
       if (connectedActor) joint.setConnectedCollider(connectedActor);
       this._syncNative();
     }
@@ -311,9 +351,10 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   protected abstract _createJoint(actor: IDynamicCollider): IJoint;
 
   /** @internal */
-  protected _destroyNativeJoint(): void {
+  protected _destroyNativeJoint(scene: Scene): void {
     const nativeJoint = this._nativeJoint;
     if (nativeJoint) {
+      scene.physics._unregisterJoint(this._breakEventId);
       nativeJoint.destroy();
       this._nativeJoint = null;
       this._wakeBodies();
@@ -325,9 +366,9 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     this._updateActualAnchor(AnchorOwner.Self);
     this._syncConnectedFrame();
     nativeJoint.setConnectedMassScale(this._connectedBodyInfo.massScale);
-    nativeJoint.setConnectedInertiaScale(this._connectedBodyInfo.inertiaScale);
     nativeJoint.setMassScale(this._bodyInfo.massScale);
-    nativeJoint.setInertiaScale(this._bodyInfo.inertiaScale);
+    nativeJoint.setEnableCollision(this._enableCollision);
+    nativeJoint.setEnablePreprocessing(this._enablePreprocessing);
     nativeJoint.setBreakForce(this._force);
     nativeJoint.setBreakTorque(this._torque);
   }
@@ -460,5 +501,4 @@ class JointBodyInfo extends DataObject {
   @ignoreClone
   actualAnchor = new Vector3();
   massScale: number = 1;
-  inertiaScale: number = 1;
 }

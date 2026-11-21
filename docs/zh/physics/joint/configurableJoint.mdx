@@ -1,0 +1,22 @@
+---
+order: 4
+title: 可配置关节
+type: 物理
+label: Physics
+---
+
+可配置关节在自身刚体的关节坐标系中控制 X、Y、Z 轴的平移与旋转。所有轴默认锁定，可以通过 `setMotion` 将某个轴设为自由或受限。平移范围使用场景长度单位，扭转和摆动范围使用弧度。
+
+```typescript
+const joint = entity.addComponent(ConfigurableJoint);
+joint.connectedBody = carriage.getComponent(Rigidbody);
+
+joint.setLinearLimit(ConfigurableJointAxis.X, -0.5, 0.5);
+joint.setMotion(ConfigurableJointAxis.X, ConfigurableJointMotion.Limited);
+joint.setDrive(ConfigurableJointDrive.X, 20, 4, 50);
+joint.setDrivePosition(new Vector3(0.3, 0, 0), new Quaternion());
+```
+
+驱动目标描述连接端坐标系相对于自身关节坐标系的状态。驱动刚度控制目标位置，阻尼控制目标速度。平移驱动的力上限使用牛顿，旋转驱动的力矩上限使用牛·米。可通过可选的加速度参数使驱动强度独立于刚体质量。
+
+使用 `setTwistLimit` 设定绕 X 轴的扭转范围，使用 `setSwingLimit` 设定绕 Y、Z 轴的对称摆动范围。两个摆动轴同时受限时，允许的方向形成椭圆锥。SLERP 驱动要求三个旋转轴都处于解锁状态。

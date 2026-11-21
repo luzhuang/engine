@@ -46,7 +46,7 @@ The Character Controller carries its own geometry instead of using other Collide
 |----------|-------------|---------|
 | [**geometry**](/apis/core/#CharacterController-geometry) | `CharacterControllerGeometry.Capsule` (a capsule along `upDirection`) or `CharacterControllerGeometry.Box` (an axis-aligned box) | Capsule |
 | [**radius**](/apis/core/#CharacterController-radius) | Capsule radius in the Entity's local space | 0.5 |
-| [**height**](/apis/core/#CharacterController-height) | Total capsule height including both caps | 2 |
+| [**height**](/apis/core/#CharacterController-height) | Total capsule height including both caps. The scaled height must exceed the scaled diameter. | 2 |
 | [**size**](/apis/core/#CharacterController-size) | Box size in the Entity's local space | (1, 1, 1) |
 | [**center**](/apis/core/#Collider-center) | Center of the geometry in the Entity's local space | (0, 0, 0) |
 
@@ -63,7 +63,8 @@ The geometry follows the Entity's world scale. `rotation` inherited from Collide
 ### Specific Properties
 | Property | Description | Default |
 |----------|-------------|---------|
-| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | Requested step height in world units. PhysX excludes the controller from simulation and queries while this value exceeds its scaled height along `upDirection`. Finite negative values are clamped to 0. | 0.5 |
+| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | Requested step height in world units. PhysX limits the effective step to the scaled height. The property retains the requested value. Finite negative values are clamped to 0. | 0.5 |
+| [**climbingMode**](/apis/core/#CharacterController-climbingMode) | Capsule step behavior. `Easy` allows the rounded capsule to climb higher than `stepOffset`. `Constrained` limits that behavior. | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | Maximum slope angle (in degrees) the character can walk on.<ul><li>Surfaces steeper than this angle will be treated as unwalkable walls</li><li>Affects the character's climbing ability</li></ul> | 45° |
 | [**nonWalkableMode**](/apis/core/#CharacterController-nonWalkableMode) | Defines how to handle unwalkable surfaces.<ul><li>PreventClimbing: Prevents the character from climbing unwalkable slopes but doesn't force other movements (default)</li><li>PreventClimbingAndForceSliding: Prevents the character from climbing unwalkable slopes and forces the character to slide down</li></ul> | PreventClimbing |
 | [**upDirection**](/apis/core/#CharacterController-upDirection) | Defines the character's up direction. Default is (0, 1, 0), which means Y-axis up in world space. Affects movement and collision detection direction | (0, 1, 0) |
@@ -72,7 +73,18 @@ The geometry follows the Entity's world scale. `rotation` inherited from Collide
 
 | Method | Description |
 |--------|-------------|
-| [**move**](/apis/core/#CharacterController-move) | Move the character controller and write the result to the Entity's world position immediately. Returns a collision flag value indicating collision status, or 0 when the controller is not in a scene.<ul><li>displacement: Movement vector</li><li>minDist: Minimum movement distance</li><li>elapsedTime: Elapsed time</li></ul> |
+| [**move**](/apis/core/#CharacterController-move) | Move the character controller and write the result to the Entity's world position immediately. Returns a collision flag value indicating collision status, or 0 when the controller is not in a scene.<ul><li>displacement: Movement vector</li><li>minDist: Remaining distance at which the sweep stops, defaults to 0</li><li>elapsedTime: Seconds since the previous move, defaults to the scene's fixed timestep</li></ul> |
+| [**getFootPosition(out)**](/apis/core/#CharacterController-getFootPosition) | Write the world position of the foot, including the contact offset. |
+| [**setFootPosition(position)**](/apis/core/#CharacterController-setFootPosition) | Teleport the controller so its foot is at the given world position. |
+| [**resize(height)**](/apis/core/#CharacterController-resize) | Set the local total height while keeping the foot in place. Check for clearance before growing the controller. |
+
+Use `isGrounded` or `collisionFlags` to read the last move's contacts. Call `getVelocity(out)` to read its actual world-space velocity. Scene queries see the new pose in the same frame.
+
+Implement `onControllerColliderHit(hit)` on a script attached to the moving entity to receive sweep contacts. The callback runs after the entity's position is written and before `move` returns. A single move can report multiple contacts. Each hit identifies the collider and provides the world-space point, normal, direction, and length of the sweep segment. Copy any values you need to keep.
+
+Use the hit data to apply a force or impulse to `hit.collider.attachedRigidbody` when implementing pushes. While grounded on a moving platform, `move` follows the support point as the platform translates or rotates. The entity retains its facing direction.
+
+The scene's `physics.characterControllerOverlapRecovery` defaults to `true`. During movement, it lets controllers recover from overlaps with static colliders.
 
 `getClosestPoint` is not supported by the Character Controller and returns -1.
 
@@ -110,21 +122,37 @@ controller.upDirection = new Vector3(0, 1, 0); // Set upward direction
 ### Using the Move Function
 ```typescript
 class CharacterMovement extends Script {
-  private _velocity = new Vector3();
-  
-  onUpdate(deltaTime: number) {
-    const controller = this.entity.getComponent(CharacterController);
+  private _controller: CharacterController;
+  private readonly _displacement = new Vector3();
+  private _verticalSpeed = 0;
+  private _jumpRequested = false;
 
-    // Create displacement vector
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
+  onAwake() {
+    this._controller = this.entity.getComponent(CharacterController);
+  }
 
-    // Pass the frame duration in seconds. Use a zero minimum distance to avoid filtering out small moves.
-    const collisionFlags = controller.move(displacement, 0, deltaTime);
-    
-    // Handle collision response
-    if (collisionFlags & ControllerCollisionFlag.Down) {
-      // Character is on the ground
+  onUpdate() {
+    this._jumpRequested ||= this.engine.inputManager.isKeyDown(Keys.Space);
+  }
+
+  onPhysicsUpdate() {
+    const input = this.engine.inputManager;
+    const physics = this.scene.physics;
+    const dt = physics.fixedTimeStep;
+    const x = Number(input.isKeyHeldDown(Keys.KeyD)) - Number(input.isKeyHeldDown(Keys.KeyA));
+    const z = Number(input.isKeyHeldDown(Keys.KeyW)) - Number(input.isKeyHeldDown(Keys.KeyS));
+    const displacement = this._displacement.set(x, 0, z).normalize().scale(5 * dt);
+
+    if (this._jumpRequested && this._controller.isGrounded) {
+      this._verticalSpeed = 5;
+    }
+    this._jumpRequested = false;
+    this._verticalSpeed += physics.gravity.y * dt;
+    displacement.y = this._verticalSpeed * dt;
+
+    const contacts = this._controller.move(displacement);
+    if (contacts & (ControllerCollisionFlag.Down | ControllerCollisionFlag.Up)) {
+      this._verticalSpeed = 0;
     }
   }
 }

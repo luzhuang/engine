@@ -56,11 +56,14 @@ The connection target must be a [Rigidbody](/en/docs/physics/collider/rigidbody)
 
 | Property            | Description                                                                 |
 | --------------- | -------------------------------------------------------------------- |
-| **min**         | Minimum angle limit (degrees)                                                  |
-| **max**         | Maximum angle limit (degrees)                                                  |
-| **contactDistance** | Contact distance, defines the distance at which the limit starts to take effect                               |
-| **stiffness**   | Spring stiffness (only effective when useSpring is true)                           |
-| **damping**     | Damping coefficient (only effective when useSpring is true)                           |
+| **min** | Lower limit, in radians |
+| **max** | Upper limit, in radians |
+| **contactDistance** | How far inside a hard limit the solver begins enforcing it, in radians |
+| **stiffness** | Stiffness of the soft limits |
+| **damping** | Damping of the soft limits |
+
+- [**useSoftLimits**](/apis/core/#HingeJoint-useSoftLimits) applies a spring response after an angular limit is exceeded.
+- [**extendedLimits**](/apis/core/#HingeJoint-extendedLimits) allows angular limits beyond ±π radians.
 
 ### Motor Drive
 - [**useMotor**](/apis/core/#HingeJoint-useMotor)  
@@ -72,13 +75,9 @@ The connection target must be a [Rigidbody](/en/docs/physics/collider/rigidbody)
 | Property            | Description                                                                 |
 | --------------- | -------------------------------------------------------------------- |
 | **targetVelocity** | Target angular velocity (radians/second)                                               |
-| **forceLimit**  | Maximum torque limit                                                        |
+| **forceLimit**  | Maximum drive torque (N·m)                                                        |
 | **freeSpin**    | Whether to allow free spin                                                    |
 | **gearRatio**   | Gear ratio, used to adjust the actual output angular velocity                                    |
-
-### Spring Settings
-- [**useSpring**](/apis/core/#HingeJoint-useSpring)  
-  Whether to enable the spring effect. When enabled, the limiter will exhibit elastic characteristics.
 
 ### Break Thresholds
 - [**breakForce**](/apis/core/#HingeJoint-breakForce)  
@@ -89,7 +88,7 @@ The connection target must be a [Rigidbody](/en/docs/physics/collider/rigidbody)
 
 ### Mass Calculation Intervention
 - [**connectedMassScale**](/apis/core/#HingeJoint-connectedMassScale) and [**massScale**](/apis/core/#HingeJoint-massScale)  
-  Adjust the mass influence of the connected Rigidbody and the joint's own Rigidbody. The default value is 1.0.
+  Multiply the inverse mass and inverse inertia of the connected body and this body during constraint solving. Both default to 1. Higher values make the corresponding body respond more to the joint.
 
 ## Script Usage
 
@@ -112,12 +111,12 @@ hingeJoint.axis.set(0, 1, 0);
 // Enable angle limits
 hingeJoint.useLimits = true;
 hingeJoint.limits = new JointLimits();
-hingeJoint.limits.min = -45;         // Minimum angle
-hingeJoint.limits.max = 45;          // Maximum angle
+hingeJoint.limits.min = -Math.PI / 4;         // Minimum angle
+hingeJoint.limits.max = Math.PI / 4;          // Maximum angle
 hingeJoint.limits.contactDistance = 0.1; // Activate the hard limit within 0.1 radians of either bound.
 
 // Enable elastic limits
-hingeJoint.useSpring = true;
+hingeJoint.useSoftLimits = true;
 hingeJoint.limits.stiffness = 100;  // Spring stiffness
 hingeJoint.limits.damping = 0.2;    // Damping coefficient
 ```
@@ -137,7 +136,7 @@ hingeJoint.motor.gearRatio = 1;         // Gear ratio
 ### Get Motion Information
 
 ```typescript
-// Get current angle
+// Get the current angle in radians.
 const currentAngle = hingeJoint.angle;
 
 // Get current angular velocity

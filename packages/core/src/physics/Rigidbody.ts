@@ -21,6 +21,18 @@ import type { Joint } from "./joint/Joint";
  */
 @dependentComponents(Transform, DependentMode.CheckOnly)
 export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
+  private static _validateDamping(value: number): void {
+    if (typeof value !== "number" || !(value >= 0 && Number.isFinite(Math.fround(value)))) {
+      throw new RangeError("Rigidbody damping must be finite and nonnegative.");
+    }
+  }
+
+  private static _validateSpeedLimit(value: number): void {
+    if (typeof value !== "number" || !(value >= 0 && Number.isFinite(Math.fround(Math.fround(value) ** 2)))) {
+      throw new RangeError("Rigidbody speed limit must be nonnegative with a finite Float32 square.");
+    }
+  }
+
   /** @internal */
   @ignoreClone
   _dirtyIndex = -1;
@@ -55,11 +67,13 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   private _centerOfMass = new Vector3();
   @ignoreClone
   private _inertiaTensor = new Vector3(1, 1, 1);
-  private _centerOfMassAuthored = false;
-  private _inertiaTensorAuthored = false;
+  @ignoreClone
+  private _inertiaTensorRotation = new Quaternion();
+  private _maxLinearVelocity = 1e16;
   private _maxAngularVelocity = 100;
-  private _maxDepenetrationVelocity = 1.0000000331813535e32;
+  private _maxDepenetrationVelocity = 10;
   private _solverIterations = 4;
+  private _solverVelocityIterations = 1;
   private _useGravity = true;
   private _isKinematic = false;
   private _constraints: RigidbodyConstraints = 0;
@@ -70,12 +84,14 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * The linear damping of the Rigidbody.
+   * @throws When assigned a negative or non-finite Float32 value.
    */
   get linearDamping(): number {
     return this._linearDamping;
   }
 
   set linearDamping(value: number) {
+    Rigidbody._validateDamping(value);
     if (this._linearDamping !== value) {
       this._linearDamping = value;
       this._nativeActor?.setLinearDamping(value);
@@ -84,12 +100,14 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * The angular damping of the Rigidbody.
+   * @throws When assigned a negative or non-finite Float32 value.
    */
   get angularDamping(): number {
     return this._angularDamping;
   }
 
   set angularDamping(value: number) {
+    Rigidbody._validateDamping(value);
     if (this._angularDamping !== value) {
       this._angularDamping = value;
       this._nativeActor?.setAngularDamping(value);
@@ -139,7 +157,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   }
 
   /**
-   * The mass of the Rigidbody.
+   * The mass of the Rigidbody. PhysX treats zero as infinite mass.
    */
   get mass(): number {
     return this._mass;
@@ -160,7 +178,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * Whether the center of mass is calculated automatically from the attached Colliders.
-   * @remarks Disabling uses the authored value, or preserves the current computed value if none was authored.
+   * @remarks Disabling preserves the current value.
    */
   get automaticCenterOfMass(): boolean {
     return this._automaticCenterOfMass;
@@ -172,33 +190,28 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
         this._automaticCenterOfMass = true;
         this._markMassDirty();
       } else {
-        const authored = this._centerOfMassAuthored;
-        if (!authored) this._readComputedCenterOfMass();
+        this._readComputedCenterOfMass();
         this._automaticCenterOfMass = false;
-        if (authored) this._nativeActor?.setCenterOfMass(this._centerOfMass);
       }
     }
   }
 
   /**
    * The center of mass relative to the transform's origin.
-   * @remarks Reads the authored value once written, otherwise the last effective value.
-   * Simulation uses the computed value while `automaticCenterOfMass` is true.
+   * @remarks Writing disables {@link automaticCenterOfMass}.
    */
   get centerOfMass(): Vector3 {
-    if (this._automaticCenterOfMass && !this._centerOfMassAuthored) this._readComputedCenterOfMass();
+    if (this._automaticCenterOfMass) this._readComputedCenterOfMass();
     return this._centerOfMass;
   }
 
   set centerOfMass(value: Vector3) {
-    if (this._centerOfMass !== value) {
-      this._centerOfMass.copyFrom(value);
-    }
+    this._centerOfMass.copyFrom(value);
   }
 
   /**
    * Whether the inertia tensor is calculated automatically from the attached Colliders and mass.
-   * @remarks Disabling uses the authored value, or preserves the current computed value if none was authored.
+   * @remarks Disabling preserves the current value.
    */
   get automaticInertiaTensor(): boolean {
     return this._automaticInertiaTensor;
@@ -210,38 +223,112 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
         this._automaticInertiaTensor = true;
         this._markMassDirty();
       } else {
-        const authored = this._inertiaTensorAuthored;
-        if (!authored) this._readComputedInertiaTensor();
+        const actor = this._getSyncedActor();
+        if (actor) {
+          this._readInertiaTensor(actor);
+          actor.getInertiaTensorRotation(this._inertiaTensorRotation);
+        }
         this._automaticInertiaTensor = false;
-        if (authored) this._nativeActor?.setInertiaTensor(this._inertiaTensor);
       }
     }
   }
 
   /**
    * The diagonal inertia tensor of mass relative to the center of mass.
-   * @remarks Reads the authored value once written, otherwise the last effective value.
-   * Simulation uses the computed value while `automaticInertiaTensor` is true.
+   * @remarks Writing disables {@link automaticInertiaTensor}.
    */
   get inertiaTensor(): Vector3 {
-    if (this._automaticInertiaTensor && !this._inertiaTensorAuthored) this._readComputedInertiaTensor();
+    if (this._automaticInertiaTensor) {
+      const actor = this._getSyncedActor();
+      if (actor) this._readInertiaTensor(actor);
+    }
     return this._inertiaTensor;
   }
 
   set inertiaTensor(value: Vector3) {
-    if (this._inertiaTensor !== value) {
-      this._inertiaTensor.copyFrom(value);
+    this._inertiaTensor.copyFrom(value);
+  }
+
+  /**
+   * The rotation of the inertia tensor's principal axes relative to the body.
+   * @remarks The getter returns a read-only view. Assigning a rotation disables {@link automaticInertiaTensor}.
+   * @throws When the rotation is not finite or has zero length.
+   */
+  get inertiaTensorRotation(): Readonly<Pick<Quaternion, "x" | "y" | "z" | "w">> {
+    if (this._automaticInertiaTensor) this._getSyncedActor()?.getInertiaTensorRotation(this._inertiaTensorRotation);
+    return this._inertiaTensorRotation;
+  }
+
+  set inertiaTensorRotation({ x, y, z, w }: Readonly<Pick<Quaternion, "x" | "y" | "z" | "w">>) {
+    const length = Math.hypot(x, y, z, w);
+    if (!Number.isFinite(length) || length === 0)
+      throw new Error("Rigidbody inertia rotation must be nonzero and finite.");
+    const actor = this._automaticInertiaTensor ? this._getSyncedActor() : this._nativeActor;
+    if (this._automaticInertiaTensor && actor) this._readInertiaTensor(actor);
+    this._automaticInertiaTensor = false;
+    const rotation = this._inertiaTensorRotation.set(x / length, y / length, z / length, w / length);
+    actor?.setInertiaTensorRotation(rotation);
+  }
+
+  /**
+   * Writes the world-space position of the center of mass to `out`.
+   * @returns The output vector.
+   */
+  getWorldCenterOfMass(out: Vector3): Vector3 {
+    const transform = this.entity.transform;
+    Vector3.transformByQuat(this.centerOfMass, transform.worldRotationQuaternion, out);
+    return out.add(transform.worldPosition);
+  }
+
+  /**
+   * Writes the simulated world-space velocity at a world-space point.
+   * @param point - Point in world space.
+   * @param out - Receives the velocity, or zero before the body has a physics actor.
+   * @returns The output vector.
+   */
+  getPointVelocity(point: Vector3, out: Vector3): Vector3 {
+    return this._getSyncedActor()?.getPointVelocity(point, out) ?? out.set(0, 0, 0);
+  }
+
+  /**
+   * Writes the simulated world-space velocity at a point in the unscaled local frame of the body.
+   * @param point - Point in the body's local frame.
+   * @param out - Receives the velocity, or zero before the body has a physics actor.
+   * @returns The output vector.
+   */
+  getRelativePointVelocity(point: Vector3, out: Vector3): Vector3 {
+    return this._getSyncedActor()?.getRelativePointVelocity(point, out) ?? out.set(0, 0, 0);
+  }
+
+  /**
+   * Maximum linear speed in world units per second before solving.
+   * @defaultValue 1e16
+   * @remarks The speed can temporarily exceed the limit as a result of contact or joint solving.
+   * @throws When assigned a negative limit or one whose square exceeds Float32 range.
+   */
+  get maxLinearVelocity(): number {
+    return this._maxLinearVelocity;
+  }
+
+  set maxLinearVelocity(value: number) {
+    Rigidbody._validateSpeedLimit(value);
+    if (this._maxLinearVelocity !== value) {
+      this._maxLinearVelocity = value;
+      this._nativeActor?.setMaxLinearVelocity(value);
     }
   }
 
   /**
-   * Maximum angular speed in radians per second.
+   * Maximum angular speed in radians per second before solving.
+   * @remarks The speed can temporarily exceed the limit as a result of contact or joint solving.
+   * @throws When assigned a negative limit or one whose square exceeds Float32 range.
    */
   get maxAngularVelocity(): number {
     return this._maxAngularVelocity;
   }
 
   set maxAngularVelocity(value: number) {
+    Rigidbody._validateSpeedLimit(value);
     if (this._maxAngularVelocity !== value) {
       this._maxAngularVelocity = value;
       this._nativeActor?.setMaxAngularVelocity(value);
@@ -250,6 +337,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * Maximum speed at which the solver separates overlapping bodies, in world units per second.
+   * @defaultValue 10
    */
   get maxDepenetrationVelocity(): number {
     return this._maxDepenetrationVelocity;
@@ -277,7 +365,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   }
 
   /**
-   * The solver iteration count for contacts and constraints, clamped to an integer from 1 to 255.
+   * The number of solver position iterations, clamped to an integer from 1 to 255.
    * @throws When the value is not finite.
    */
   get solverIterations(): number {
@@ -291,7 +379,25 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     value = MathUtil.clamp(Math.round(value), 1, 255);
     if (this._solverIterations !== value) {
       this._solverIterations = value;
-      this._nativeActor?.setSolverIterations(value);
+      this._nativeActor?.setSolverIterations(value, this._solverVelocityIterations);
+    }
+  }
+
+  /**
+   * The number of solver velocity iterations, clamped to an integer from 1 to 255.
+   * @defaultValue 1
+   * @throws When the value is not finite.
+   */
+  get solverVelocityIterations(): number {
+    return this._solverVelocityIterations;
+  }
+
+  set solverVelocityIterations(value: number) {
+    if (!Number.isFinite(value)) throw new Error("Rigidbody solverVelocityIterations must be finite.");
+    value = MathUtil.clamp(Math.round(value), 1, 255);
+    if (this._solverVelocityIterations !== value) {
+      this._solverVelocityIterations = value;
+      this._nativeActor?.setSolverIterations(this._solverIterations, value);
     }
   }
 
@@ -397,10 +503,12 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * Applies a world-space force at the center of mass.
+   * @param force - Value in the units of the selected mode.
+   * @param mode - How the value changes velocity.
    */
-  applyForce(force: Vector3): void {
+  applyForce(force: Vector3, mode: ForceMode = ForceMode.Force): void {
     // The current mass properties convert the force, so pending Collider changes are applied first
-    this._phasedActiveInScene && this._getSyncedActor()!.addForce(force);
+    this._phasedActiveInScene && this._getSyncedActor()?.addForce(force, mode);
   }
 
   /**
@@ -414,8 +522,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * Applies a world-space impulse at the center of mass on the next physics step.
    */
   applyImpulse(impulse: Vector3): void {
-    // The current mass properties convert the impulse, so pending Collider changes are applied first
-    this._phasedActiveInScene && this._getSyncedActor()?.addImpulse(impulse);
+    this.applyForce(impulse, ForceMode.Impulse);
   }
 
   /**
@@ -427,14 +534,17 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * Applies a world-space torque.
+   * @param torque - Value in the units of the selected mode.
+   * @param mode - How the value changes angular velocity.
    */
-  applyTorque(torque: Vector3): void {
-    this._phasedActiveInScene && this._getSyncedActor()!.addTorque(torque);
+  applyTorque(torque: Vector3, mode: ForceMode = ForceMode.Force): void {
+    this._phasedActiveInScene && this._getSyncedActor()?.addTorque(torque, mode);
   }
 
   /**
    * Sets the world-space target position for the next kinematic simulation step, preserving the target rotation.
-   * @remarks Requires an active kinematic Rigidbody. A kinematic target can push other bodies during simulation.
+   * @remarks An active body uses the target for scene queries immediately. The Entity's transform advances during simulation.
+   * @throws When the body is dynamic.
    */
   move(position: Vector3): void;
 
@@ -451,33 +561,30 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   move(position: Vector3, rotation: Quaternion): void;
 
   move(positionOrRotation: Vector3 | Quaternion, rotation?: Quaternion): void {
-    if (!this._isKinematic) {
-      console.warn("Rigidbody: move() is only supported when isKinematic is true.");
-      return;
-    }
+    if (!this._isKinematic) throw new Error("Rigidbody.move requires a kinematic body.");
     // Teleport pending transform edits first so the move starts from the current pose
     this._phasedActiveInScene && this._getSyncedActor()!.move(positionOrRotation, rotation);
   }
 
   /**
-   * Puts the Rigidbody to sleep when its physics actor exists.
+   * Puts an active dynamic body to sleep.
    */
   sleep(): void {
-    this._nativeActor?.sleep();
+    if (this._index !== -1 && !this._isKinematic) this._nativeActor!.sleep();
   }
 
   /**
-   * Returns whether the Rigidbody has a sleeping physics actor.
+   * Returns whether the body is registered in the physics scene and sleeping.
    */
   isSleeping(): boolean {
-    return this._nativeActor?.isSleeping() ?? false;
+    return this._index !== -1 && this._nativeActor!.isSleeping();
   }
 
   /**
-   * Wakes the Rigidbody when its physics actor exists.
+   * Wakes an active dynamic body.
    */
   wakeUp(): void {
-    this._nativeActor?.wakeUp();
+    if (this._index !== -1 && !this._isKinematic) this._nativeActor!.wakeUp();
   }
 
   /**
@@ -487,13 +594,10 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   _onClone(target: Rigidbody): void {
     target._linearVelocity.copyFrom(this.linearVelocity);
     target._angularVelocity.copyFrom(this.angularVelocity);
-    if (!this._automaticCenterOfMass || this._centerOfMassAuthored) {
-      target._centerOfMass.copyFrom(this._centerOfMass);
-      target._centerOfMassAuthored = this._centerOfMassAuthored;
-    }
-    if (!this._automaticInertiaTensor || this._inertiaTensorAuthored) {
-      target._inertiaTensor.copyFrom(this._inertiaTensor);
-      target._inertiaTensorAuthored = this._inertiaTensorAuthored;
+    if (!this._automaticCenterOfMass) target.centerOfMass = this._centerOfMass;
+    if (!this._automaticInertiaTensor) {
+      target.inertiaTensor = this._inertiaTensor;
+      target.inertiaTensorRotation = this._inertiaTensorRotation;
     }
   }
 
@@ -561,15 +665,19 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
       actor.setMotionState(this._isKinematic, this._useCCD);
       actor.setLinearDamping(this._linearDamping);
       actor.setAngularDamping(this._angularDamping);
-      actor.setLinearVelocity(this._linearVelocity);
-      actor.setAngularVelocity(this._angularVelocity);
+      if (!this._isKinematic) actor.setLinearVelocity(this._linearVelocity);
+      if (!this._isKinematic) actor.setAngularVelocity(this._angularVelocity);
       actor.setMass(this._mass);
       this._automaticCenterOfMass || actor.setCenterOfMass(this._centerOfMass);
-      this._automaticInertiaTensor || actor.setInertiaTensor(this._inertiaTensor);
+      if (!this._automaticInertiaTensor) {
+        actor.setInertiaTensor(this._inertiaTensor);
+        actor.setInertiaTensorRotation(this._inertiaTensorRotation);
+      }
+      actor.setMaxLinearVelocity(this._maxLinearVelocity);
       actor.setMaxAngularVelocity(this._maxAngularVelocity);
       actor.setMaxDepenetrationVelocity(this._maxDepenetrationVelocity);
       actor.setSleepThreshold(this._sleepThreshold);
-      actor.setSolverIterations(this._solverIterations);
+      actor.setSolverIterations(this._solverIterations, this._solverVelocityIterations);
       actor.setUseGravity(this._useGravity);
       actor.setConstraints(this._constraints);
     }
@@ -702,7 +810,10 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
         // PhysX overwrites both properties, restore the manual ones
         actor.setMassAndUpdateInertia(mass);
         this._automaticCenterOfMass || actor.setCenterOfMass(this._centerOfMass);
-        this._automaticInertiaTensor || actor.setInertiaTensor(this._inertiaTensor);
+        if (!this._automaticInertiaTensor) {
+          actor.setInertiaTensor(this._inertiaTensor);
+          actor.setInertiaTensorRotation(this._inertiaTensorRotation);
+        }
         return;
       }
     }
@@ -762,19 +873,13 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     }
   }
 
-  /**
-   * Read the computed inertia tensor into its field, applying pending changes first.
-   */
-  private _readComputedInertiaTensor(): void {
-    const actor = this._getSyncedActor();
-    if (actor) {
-      const inertiaTensor = this._inertiaTensor;
-      // @ts-ignore
-      inertiaTensor._onValueChanged = null;
-      actor.getInertiaTensor(inertiaTensor);
-      // @ts-ignore
-      inertiaTensor._onValueChanged = this._handleInertiaTensorChanged;
-    }
+  private _readInertiaTensor(actor: IDynamicCollider): void {
+    const inertiaTensor = this._inertiaTensor;
+    // @ts-ignore
+    inertiaTensor._onValueChanged = null;
+    actor.getInertiaTensor(inertiaTensor);
+    // @ts-ignore
+    inertiaTensor._onValueChanged = this._handleInertiaTensorChanged;
   }
 
   /**
@@ -792,25 +897,39 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   @ignoreClone
   private _setLinearVelocity(): void {
-    this._nativeActor?.setLinearVelocity(this._linearVelocity);
+    if (!this._isKinematic) this._nativeActor?.setLinearVelocity(this._linearVelocity);
   }
 
   @ignoreClone
   private _setAngularVelocity(): void {
-    this._nativeActor?.setAngularVelocity(this._angularVelocity);
+    if (!this._isKinematic) this._nativeActor?.setAngularVelocity(this._angularVelocity);
   }
 
   @ignoreClone
   private _handleCenterOfMassChanged(): void {
-    this._centerOfMassAuthored = true;
-    if (!this._automaticCenterOfMass) this._nativeActor?.setCenterOfMass(this._centerOfMass);
+    this._automaticCenterOfMass = false;
+    this._nativeActor?.setCenterOfMass(this._centerOfMass);
   }
 
   @ignoreClone
   private _handleInertiaTensorChanged(): void {
-    this._inertiaTensorAuthored = true;
-    if (!this._automaticInertiaTensor) this._nativeActor?.setInertiaTensor(this._inertiaTensor);
+    const actor = this._nativeActor;
+    if (this._automaticInertiaTensor && actor) actor.getInertiaTensorRotation(this._inertiaTensorRotation);
+    this._automaticInertiaTensor = false;
+    actor?.setInertiaTensor(this._inertiaTensor);
   }
+}
+
+/** How a force or torque changes a body's velocity. */
+export enum ForceMode {
+  /** Force or torque multiplied by the timestep and divided by the mass or inertia. */
+  Force = 0,
+  /** Impulse divided by the mass or inertia. */
+  Impulse = 1,
+  /** One-time change to velocity or angular velocity. */
+  VelocityChange = 2,
+  /** Acceleration multiplied by the timestep. */
+  Acceleration = 3
 }
 
 /**
@@ -819,16 +938,22 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 export enum RigidbodyConstraints {
   /** Not Freeze. */
   None = 0,
-  /** Freeze motion along the X-axis. */
+  /** Freeze motion along the world X-axis. */
   FreezePositionX = 1,
-  /** Freeze motion along the Y-axis. */
+  /** Freeze motion along the world Y-axis. */
   FreezePositionY = 2,
-  /** Freeze motion along the Z-axis. */
+  /** Freeze motion along the world Z-axis. */
   FreezePositionZ = 4,
-  /** Freeze rotation along the X-axis. */
+  /** Freeze rotation about the world X-axis. */
   FreezeRotationX = 8,
-  /** Freeze rotation along the Y-axis. */
+  /** Freeze rotation about the world Y-axis. */
   FreezeRotationY = 16,
-  /** Freeze rotation along the Z-axis. */
-  FreezeRotationZ = 32
+  /** Freeze rotation about the world Z-axis. */
+  FreezeRotationZ = 32,
+  /** Freeze translation along all axes. */
+  FreezePosition = FreezePositionX | FreezePositionY | FreezePositionZ,
+  /** Freeze rotation about all axes. */
+  FreezeRotation = FreezeRotationX | FreezeRotationY | FreezeRotationZ,
+  /** Freeze all translation and rotation. */
+  FreezeAll = FreezePosition | FreezeRotation
 }

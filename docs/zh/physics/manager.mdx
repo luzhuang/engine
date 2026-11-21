@@ -17,11 +17,9 @@ fixedTimeStep: number = 1 / 60;
 
 ### 更新机制
 
-- 每个渲染帧中,物理引擎会按照固定时间步长 [fixedTimeStep](/apis/core/#PhysicsScene-fixedTimeStep) 进行更新
-- 如果实际帧间隔大于 `fixedTimeStep`:
-  - 会执行多次物理更新直到追赶上实际时间
-  - 单帧最大更新时间由 `engine.time.maximumDeltaTime` 限制
-- 如果实际帧间隔小于 `fixedTimeStep`,则累积到下一帧处理
+引擎单次更新最多执行 `scene.physics.maxSubSteps` 个固定步（默认 8）。超出的整步会被丢弃，不足一步的时间保留到下一帧。
+
+将 `scene.physics.autoSimulation` 设为 `false` 后，可以手动驱动活动场景。调用 `scene.physics.step()` 执行一个固定步，也可以调用 `scene.physics.step(seconds)` 指定本步时长。
 
 ### 物理更新回调
 
@@ -31,7 +29,7 @@ export class Script extends Component {
   /**
    * 在物理计算前调用,调用次数取决于物理更新频率
    */
-  onPhysicsUpdate(): void {}
+  onPhysicsUpdate(deltaTime: number): void {}
 }
 ```
 
@@ -47,6 +45,8 @@ export class Script extends Component {
 3. 模拟一个固定步长
 4. 将所有已启用[刚体](/docs/physics/collider/rigidbody)模拟后的位姿写回对应的 `实体`
 5. 派发碰撞和触发器事件
+
+创建场景时可传入 `new Scene(engine, name, { solver: "tgs", contactPairs: "all", bounceThreshold: 2 })`。要配置默认场景，可在创建 Engine 时传入同样的 `physicsScene` 选项。默认使用 PGS 求解器和普通动态接触对，反弹阈值为每秒 2 个世界单位。
 
 ## 设置场景重力
 
@@ -70,4 +70,8 @@ scene.physics.gravity.set(0, -9.81, 0);
 - **[射线检测](/docs/physics/query/raycast)** - 精确的点对点检测，适用于拾取、瞄准等场景
 - **[形状投射](/docs/physics/query/sweep)** - 沿方向投射几何体，适用于移动预测、路径规划
 - **[重叠检测](/docs/physics/query/overlap)** - 检测区域内的重叠物体，适用于触发器、范围攻击
+
+场景查询默认包含触发器。传入 `{ includeTriggers: false }` 可跳过触发器，同一选项还接受碰撞层掩码 `layerMask` 和要排除的碰撞器列表 `exclude`。将 `collider.isSceneQuery` 设为 `false` 可使该碰撞器退出所有场景查询。
+
+碰撞层规则由各自的 `scene.physics` 管理，更新只作用于该场景，并应用到已经接触的碰撞对。
 

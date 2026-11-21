@@ -196,14 +196,12 @@ overlapCapsuleAll(
 const characterCenter = new Vector3(0, 1, 0);
 const attackRadius = 1.0;
 const attackHeight = 4.0;
-const upright = new Quaternion().rotateZ(Math.PI / 2);
 const enemyLayer = Layer.Layer3; // Use actual existing layer
 
 const attackTargets = physicsScene.overlapCapsuleAll(
   characterCenter,
   attackRadius,
   attackHeight,
-  upright,
   enemyLayer
 );
 
@@ -225,7 +223,6 @@ const charactersInPortal = physicsScene.overlapCapsuleAll(
   portalCenter,
   portalRadius,
   portalHeight,
-  upright,
   characterLayer
 );
 
@@ -246,7 +243,6 @@ class ElevatorDetector {
       elevatorCenter,
       1.2,  // Capsule radius
       4.4,  // Total capsule height
-      upright,
       Layer.Layer0 | Layer.Layer4, // Use actual layer combination
       this._passengersBuffer
     );
@@ -268,7 +264,7 @@ class ElevatorDetector {
 
 - **halfExtents** (overlapBoxAll) - Half-size of the box
 - **radius** (overlapSphereAll/overlapCapsuleAll) - Radius of the sphere/capsule
-- **height** (overlapCapsuleAll) - Total height in world units, including both caps. If the height is at most twice the radius, the query returns an empty result. Use `overlapSphereAll` for a sphere.
+- **height** (overlapCapsuleAll) - Total height in world units, including both caps. The default long axis is Y. If the height is at most twice the radius, the query returns an empty result. Use `overlapSphereAll` for a sphere.
 - **orientation** (overlapBoxAll/overlapCapsuleAll) - Shape rotation (defaults to no rotation)
 
 ## Return Values

@@ -5,6 +5,9 @@ import { IColliderShape } from "./IColliderShape";
  * Interface for mesh collider shape.
  */
 export interface IMeshColliderShape extends IColliderShape {
+  /** Changes whether triangle-mesh queries hit both sides without replacing the mesh. */
+  setDoubleSided(value: boolean, scale: Vector3): void;
+
   /**
    * Update mesh data and scale without changing the geometry type.
    * @param positions - Unscaled vertices in mesh-local space

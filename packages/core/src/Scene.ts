@@ -1,3 +1,4 @@
+import type { PhysicsSceneOptions } from "@galacean/engine-design";
 import { Color, Vector3, Vector4 } from "@galacean/engine-math";
 import { Background } from "./Background";
 import { ComponentsManager } from "./ComponentsManager";
@@ -32,7 +33,7 @@ export class Scene extends EngineObject {
   name: string;
 
   /** Physics. */
-  readonly physics: PhysicsScene = new PhysicsScene(this);
+  readonly physics: PhysicsScene;
 
   /** If cast shadows. */
   castShadows: boolean = true;
@@ -279,9 +280,11 @@ export class Scene extends EngineObject {
    * Create scene.
    * @param engine - Engine
    * @param name - Name
+   * @param physicsOptions - Simulation solver and contact pair settings.
    */
-  constructor(engine: Engine, name?: string) {
+  constructor(engine: Engine, name?: string, physicsOptions?: PhysicsSceneOptions) {
     super(engine);
+    this.physics = new PhysicsScene(this, physicsOptions);
     this.name = name || "";
 
     const shaderData = this.shaderData;

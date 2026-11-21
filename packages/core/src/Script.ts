@@ -4,7 +4,9 @@ import { Component } from "./Component";
 import { ignoreClone } from "./clone/CloneDecorators";
 import { PointerEventData } from "./input/pointer/PointerEventData";
 import { Collider } from "./physics";
+import type { ControllerColliderHit } from "./physics/CharacterController";
 import { Collision } from "./physics/Collision";
+import type { Joint } from "./physics/joint/Joint";
 
 /**
  * Script class, used for logic writing.
@@ -78,30 +80,37 @@ export class Script extends Component {
   onEndRender(camera: Camera): void {}
 
   /**
-   * Called before physics calculations, the number of times is related to the physical update frequency.
+   * Called before each physics step.
+   * @param deltaTime - Duration of this physics step in seconds.
    */
-  onPhysicsUpdate(): void {}
+  onPhysicsUpdate(deltaTime: number): void {}
 
   /**
    * Called when a trigger overlap begins.
    * @param other - The collider on the other side of the overlap
-   * @param self - The collider on this script's entity
+   * @param self - The collider on this script's entity or owned by its Rigidbody
    */
   onTriggerEnter(other: Collider, self: Collider): void {}
 
   /**
    * Called when a trigger overlap ends.
    * @param other - The collider on the other side of the overlap
-   * @param self - The collider on this script's entity
+   * @param self - The collider on this script's entity or owned by its Rigidbody
    */
   onTriggerExit(other: Collider, self: Collider): void {}
 
   /**
    * Called on subsequent physics steps while a trigger overlap continues.
    * @param other - The collider on the other side of the overlap
-   * @param self - The collider on this script's entity
+   * @param self - The collider on this script's entity or owned by its Rigidbody
    */
   onTriggerStay(other: Collider, self: Collider): void {}
+
+  /**
+   * Called on the moving controller's Entity after a move hits a solid collider or another controller.
+   * @param hit - The sweep contact. Copy any values needed after the callback returns.
+   */
+  onControllerColliderHit?(hit: ControllerColliderHit): void;
 
   /**
    * Called when the collision enter.
@@ -123,6 +132,12 @@ export class Script extends Component {
    * @remarks The Collision data will be invalid after this call, you should copy the data if needed.
    */
   onCollisionStay(other: Collision): void {}
+
+  /**
+   * Called after a joint on this entity breaks during a physics step.
+   * @param joint - The joint that exceeded its break force or torque.
+   */
+  onJointBreak(joint: Joint): void {}
 
   /**
    * Called when a pointer press is dispatched to this entity.

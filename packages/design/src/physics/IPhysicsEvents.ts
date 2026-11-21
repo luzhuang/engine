@@ -33,4 +33,5 @@ export interface IPhysicsEvents {
   /** The number of valid records at the start of the contact event buffer. */
   contactEventCount: number;
   triggerEvents: ReadonlyArray<ITriggerEvent>;
+  brokenJointIds: ReadonlyArray<number>;
 }

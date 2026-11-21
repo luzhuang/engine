@@ -1,8 +1,8 @@
 import { IHingeJoint } from "@galacean/engine-design";
-import { MathUtil, Quaternion, Vector3 } from "@galacean/engine";
+import { Quaternion, Vector3 } from "@galacean/engine";
 import { PhysXCollider } from "../PhysXCollider";
 import { PhysXPhysics } from "../PhysXPhysics";
-import { PhysXJoint } from "./PhysXJoint";
+import { PhysXConstraintFlag, PhysXJoint } from "./PhysXJoint";
 
 /**
  * PhysX revolute joint.
@@ -22,6 +22,7 @@ export class PhysXHingeJoint extends PhysXJoint implements IHingeJoint {
       PhysXJoint._defaultVec,
       PhysXJoint._defaultQuat
     );
+    this._pxJoint.setConstraintFlag(PhysXConstraintFlag.DriveLimitsAreForces, true);
   }
 
   override setRotation(value: Quaternion): void {
@@ -85,7 +86,7 @@ export class PhysXHingeJoint extends PhysXJoint implements IHingeJoint {
    * {@inheritDoc IHingeJoint.getAngle }
    */
   getAngle(): number {
-    return MathUtil.radianToDegree(this._pxJoint.getAngle());
+    return this._pxJoint.getAngle();
   }
 
   /**
@@ -99,19 +100,19 @@ export class PhysXHingeJoint extends PhysXJoint implements IHingeJoint {
    * {@inheritDoc IHingeJoint.setHardLimit }
    */
   setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number): void {
-    this._pxJoint.setHardLimit(MathUtil.degreeToRadian(lowerLimit), MathUtil.degreeToRadian(upperLimit), contactDist);
+    this._pxJoint.setHardLimit(lowerLimit, upperLimit, contactDist);
   }
 
   /**
    * {@inheritDoc IHingeJoint.setSoftLimit }
    */
   setSoftLimit(lowerLimit: number, upperLimit: number, stiffness: number, damping: number): void {
-    this._pxJoint.setSoftLimit(
-      MathUtil.degreeToRadian(lowerLimit),
-      MathUtil.degreeToRadian(upperLimit),
-      stiffness,
-      damping
-    );
+    this._pxJoint.setSoftLimit(lowerLimit, upperLimit, stiffness, damping);
+  }
+
+  /** {@inheritDoc IHingeJoint.setExtendedLimits} */
+  setExtendedLimits(value: boolean): void {
+    this._pxJoint.setConstraintFlag(PhysXConstraintFlag.ExtendedLimits, value);
   }
 
   /**

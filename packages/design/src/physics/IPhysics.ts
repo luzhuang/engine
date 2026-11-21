@@ -3,12 +3,13 @@ import { ICharacterController } from "./ICharacterController";
 import { ICollider } from "./ICollider";
 import { IDynamicCollider } from "./IDynamicCollider";
 import { IPhysicsMaterial, IPhysicsMaterialProperties } from "./IPhysicsMaterial";
-import { IPhysicsScene } from "./IPhysicsScene";
+import { IPhysicsScene, PhysicsSceneOptions } from "./IPhysicsScene";
 import { IStaticCollider } from "./IStaticCollider";
-import { IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
+import { IConfigurableJoint, IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
 import {
   IBoxColliderShape,
   ICapsuleColliderShape,
+  IHeightFieldColliderShape,
   IMeshColliderShape,
   IPlaneColliderShape,
   ISphereColliderShape
@@ -27,7 +28,7 @@ export interface IPhysics {
   /**
    * Create a native simulation scene.
    */
-  createPhysicsScene(): IPhysicsScene;
+  createPhysicsScene(options?: PhysicsSceneOptions): IPhysicsScene;
 
   /**
    * Create dynamic collider.
@@ -116,6 +117,16 @@ export interface IPhysics {
     scale: Vector3
   ): IMeshColliderShape | null;
 
+  /** Cooks a row-major grid and creates a shape with X, Y, and Z sample scales. */
+  createHeightFieldColliderShape(
+    uniqueID: number,
+    heights: Int16Array,
+    rows: number,
+    columns: number,
+    scale: Vector3,
+    material: IPhysicsMaterial
+  ): IHeightFieldColliderShape | null;
+
   /**
    * Create fixed joint.
    * @param collider - collider of joint
@@ -128,27 +139,14 @@ export interface IPhysics {
    */
   createHingeJoint(collider: ICollider): IHingeJoint;
 
+  /** Creates a configurable joint for the owning collider. */
+  createConfigurableJoint(collider: ICollider): IConfigurableJoint;
+
   /**
    * Create spring joint
    * @param collider - collider of joint
    */
   createSpringJoint(collider: ICollider): ISpringJoint;
-
-  /**
-   * Get whether two collision layers can collide with each other.
-   * @param layer1 - The first collision layer
-   * @param layer2 - The second collision layer
-   * @returns Whether the layers should collide
-   */
-  getColliderLayerCollision(layer1: number, layer2: number): boolean;
-
-  /**
-   * Set whether two collision layers can collide with each other.
-   * @param layer1 - The first collision layer
-   * @param layer2 - The second collision layer
-   * @param isCollide - Whether the layers should collide
-   */
-  setColliderLayerCollision(layer1: number, layer2: number, isCollide: boolean): void;
 
   /**
    * Release the physics backend.

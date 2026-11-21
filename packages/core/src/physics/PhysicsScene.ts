@@ -1,4 +1,12 @@
-import { IDynamicCollider, IPhysicsEvents, IPhysicsScene, PhysicsEventState } from "@galacean/engine-design";
+import {
+  IDynamicCollider,
+  IPhysicsEvents,
+  IPhysicsQueryFilter,
+  IPhysicsQueryHit,
+  IPhysicsScene,
+  PhysicsEventState,
+  PhysicsSceneOptions
+} from "@galacean/engine-design";
 import { MathUtil, Ray, Vector3, Quaternion } from "@galacean/engine-math";
 import { Engine } from "../Engine";
 import type { Entity } from "../Entity";
@@ -9,7 +17,20 @@ import { DisorderedArray } from "../utils/DisorderedArray";
 import { Collider } from "./Collider";
 import { Collision } from "./Collision";
 import { HitResult } from "./HitResult";
+import type { Joint } from "./joint/Joint";
 import { Rigidbody } from "./Rigidbody";
+
+/** Filters one scene query. */
+export interface PhysicsQueryFilter {
+  /** Collision layers to include. Defaults to all layers. */
+  layerMask?: Layer;
+  /** Whether to include trigger shapes. Defaults to true. */
+  includeTriggers?: boolean;
+  /** Whether casts can hit the back faces of mesh triangles. Defaults to false. */
+  hitBackfaces?: boolean;
+  /** Colliders to exclude before selecting hits. */
+  exclude?: ReadonlyArray<Collider>;
+}
 
 /**
  * Simulates colliders, rigidbodies, and constraints in a scene.
@@ -21,6 +42,12 @@ import { Rigidbody } from "./Rigidbody";
 export class PhysicsScene {
   private static _identityQuaternion = new Quaternion(0, 0, 0, 1);
   private static _tempDirection = new Vector3();
+  private static readonly _queryFilter: IPhysicsQueryFilter = {
+    layerMask: Layer.Everything,
+    includeTriggers: true,
+    hitBackfaces: false,
+    excludedShapeIds: []
+  };
   private static _raycastHitPool: HitResult[] = [];
   private static _raycastSeenHits = new Set<HitResult>();
   private static readonly _bodyPoses: [Vector3, Quaternion][] = [];
@@ -36,6 +63,13 @@ export class PhysicsScene {
   private _scene: Scene;
   private _restTime: number = 0;
   private _fixedTimeStep: number = 1 / 60;
+  private _maxSubSteps = 8;
+  private _stepping = false;
+
+  /**
+   * Whether the Engine advances this scene's physics each frame. Defaults to true.
+   */
+  autoSimulation = true;
 
   private _bodies = new DisorderedArray<Rigidbody>();
   private _bodyOrderDirty = false;
@@ -43,6 +77,8 @@ export class PhysicsScene {
   private _dirtyColliders: Collider[] = [];
   private _massDirtyBodies: Rigidbody[] = [];
   private _collision: Collision;
+  private readonly _joints = new Map<number, Joint>();
+  private _nextJointId = 0;
 
   private _gravity: Vector3 = new Vector3(0, -9.81, 0);
   /** @internal */
@@ -65,17 +101,48 @@ export class PhysicsScene {
   }
 
   /**
+   * Whether character controllers recover from overlaps with static colliders during movement.
+   * @defaultValue true
+   */
+  get characterControllerOverlapRecovery(): boolean {
+    return this._nativePhysicsScene.characterControllerOverlapRecovery;
+  }
+
+  set characterControllerOverlapRecovery(value: boolean) {
+    this._nativePhysicsScene.characterControllerOverlapRecovery = value;
+  }
+
+  /**
    * The fixed time step in seconds at which physics are performed.
+   * @throws When the value is not a positive finite Float32.
    */
   get fixedTimeStep(): number {
     return this._fixedTimeStep;
   }
 
   set fixedTimeStep(value: number) {
-    this._fixedTimeStep = Math.max(value, MathUtil.zeroTolerance);
+    if (!Collider._isValidPositiveFloat32(value)) {
+      throw new RangeError("PhysicsScene.fixedTimeStep must be positive and finite.");
+    }
+    this._fixedTimeStep = value;
   }
 
-  constructor(scene: Scene) {
+  /**
+   * Maximum number of fixed physics steps per Engine update. Whole steps above this limit are dropped.
+   * @defaultValue 8
+   */
+  get maxSubSteps(): number {
+    return this._maxSubSteps;
+  }
+
+  set maxSubSteps(value: number) {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error("PhysicsScene.maxSubSteps must be a positive integer.");
+    }
+    this._maxSubSteps = value;
+  }
+
+  constructor(scene: Scene, options?: PhysicsSceneOptions) {
     this._scene = scene;
 
     this._setGravity = this._setGravity.bind(this);
@@ -84,7 +151,7 @@ export class PhysicsScene {
 
     const engine = scene.engine;
     if (engine._physicsInitialized) {
-      this._nativePhysicsScene = Engine._nativePhysics.createPhysicsScene();
+      this._nativePhysicsScene = Engine._nativePhysics.createPhysicsScene(options);
       this._nativePhysicsScene.setContactEventEnabled(false);
     }
   }
@@ -96,7 +163,7 @@ export class PhysicsScene {
    * @returns Whether the colliders should collide
    */
   getColliderLayerCollision(layer1: Layer, layer2: Layer): boolean {
-    return Engine._nativePhysics.getColliderLayerCollision(
+    return this._nativePhysicsScene.getColliderLayerCollision(
       Collider._getLayerIndex(layer1),
       Collider._getLayerIndex(layer2)
     );
@@ -109,11 +176,24 @@ export class PhysicsScene {
    * @param isCollide - Whether the colliders should collide
    */
   setColliderLayerCollision(layer1: Layer, layer2: Layer, isCollide: boolean): void {
-    Engine._nativePhysics.setColliderLayerCollision(
+    this._nativePhysicsScene.setColliderLayerCollision(
       Collider._getLayerIndex(layer1),
       Collider._getLayerIndex(layer2),
       isCollide
     );
+  }
+
+  /**
+   * Disables or restores contact and trigger reporting for one collider pair in this scene.
+   * @remarks The override ends when either collider leaves the active scene. Scene queries are unaffected.
+   * @param ignored - Whether to ignore this pair. Set to false to restore the usual layer rules.
+   */
+  setColliderPairIgnored(first: Collider, second: Collider, ignored = true): void {
+    const scene = this._scene;
+    if (first === second || !first._isRegisteredIn(scene) || !second._isRegisteredIn(scene)) {
+      throw new Error("Collision pair requires two distinct active Colliders in this PhysicsScene.");
+    }
+    this._nativePhysicsScene.setPairIgnored(first._id, second._id, ignored);
   }
 
   /**
@@ -143,22 +223,22 @@ export class PhysicsScene {
   /**
    * Tests whether a world-space ray hits a collider.
    * @param distance - Maximum distance in world units.
-   * @param layerMask - Collision layers to include.
+   * @param layerMask - Collision layers or filters to apply.
    */
-  raycast(ray: Ray, distance: number, layerMask: Layer): boolean;
+  raycast(ray: Ray, distance: number, layerMask: Layer | PhysicsQueryFilter): boolean;
 
   /**
    * Tests whether a world-space ray hits a collider.
    * @param distance - Maximum distance in world units.
-   * @param layerMask - Collision layers to include.
+   * @param layerMask - Collision layers or filters to apply.
    * @param outHitResult - Receives the closest hit.
    */
-  raycast(ray: Ray, distance: number, layerMask: Layer, outHitResult: HitResult): boolean;
+  raycast(ray: Ray, distance: number, layerMask: Layer | PhysicsQueryFilter, outHitResult: HitResult): boolean;
 
   raycast(
     ray: Ray,
     distanceOrResult?: number | HitResult,
-    layerMaskOrResult?: Layer | HitResult,
+    layerMaskOrResult?: Layer | PhysicsQueryFilter | HitResult,
     outHitResult?: HitResult
   ): boolean {
     let hitResult: HitResult | undefined;
@@ -170,34 +250,33 @@ export class PhysicsScene {
       hitResult = distanceOrResult;
     }
 
-    let layerMask = Layer.Everything;
-    if (typeof layerMaskOrResult === "number") {
-      layerMask = layerMaskOrResult;
-    } else if (layerMaskOrResult != undefined) {
+    let layerMask: Layer | PhysicsQueryFilter = Layer.Everything;
+    if (layerMaskOrResult instanceof HitResult) {
       hitResult = layerMaskOrResult;
+    } else if (layerMaskOrResult !== undefined) {
+      layerMask = layerMaskOrResult;
     }
 
     if (outHitResult) {
       hitResult = outHitResult;
     }
 
-    const normalizedDirection = distance > 0 ? this._syncCastDirection(ray.direction) : null;
+    return this._raycast(ray.origin, ray.direction, distance, layerMask, hitResult);
+  }
 
-    let result = false;
-    if (normalizedDirection) {
-      result = this._nativePhysicsScene.raycast(
-        ray.origin,
-        normalizedDirection,
-        distance,
-        layerMask,
-        hitResult ? this._createHitCallback(hitResult) : undefined
-      );
-    }
-
-    if (!result && hitResult) {
-      this._clearHitResult(hitResult);
-    }
-    return result;
+  /**
+   * Tests the world-space line segment from start to end against the scene.
+   * @param outHitResult - Receives the closest hit or is cleared on a miss.
+   */
+  linecast(
+    start: Vector3,
+    end: Vector3,
+    filter: Layer | PhysicsQueryFilter = Layer.Everything,
+    outHitResult?: HitResult
+  ): boolean {
+    const direction = PhysicsScene._tempDirection;
+    Vector3.subtract(end, start, direction);
+    return this._raycast(start, direction, direction.length(), filter, outHitResult);
   }
 
   /**
@@ -217,7 +296,7 @@ export class PhysicsScene {
    * Tests a world-space ray and optionally writes all hits in unspecified order.
    * @param ray - World-space ray. The direction is normalized internally.
    * @param distance - Maximum distance in world units. Defaults to `Number.MAX_VALUE`.
-   * @param layerMask - Collision layers to include. Defaults to `Layer.Everything`.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
    * @param outHitResults - Reusable output array, resized to the hit count. Omit to test for a hit only.
    * @returns Whether any hit was found.
    * @remarks Reuse the array as-is. This call overwrites existing entries and may recycle entries it trims,
@@ -225,15 +304,15 @@ export class PhysicsScene {
    * Keep result objects in a single output array. Duplicate entries show the last hit written to the shared object.
    * Only positive-distance hits are reported. Invalid directions and non-positive distances empty the output.
    */
-  raycastAll(ray: Ray, distance?: number, layerMask?: Layer, outHitResults?: HitResult[]): boolean;
+  raycastAll(ray: Ray, distance?: number, layerMask?: Layer | PhysicsQueryFilter, outHitResults?: HitResult[]): boolean;
 
   raycastAll(
     ray: Ray,
     distance: number | HitResult[] = Number.MAX_VALUE,
-    layerMask: Layer | HitResult[] = Layer.Everything,
+    layerMask: Layer | PhysicsQueryFilter | HitResult[] = Layer.Everything,
     outHitResults?: HitResult[]
   ): boolean {
-    if (typeof layerMask !== "number") {
+    if (Array.isArray(layerMask)) {
       outHitResults ||= layerMask;
       layerMask = Layer.Everything;
     }
@@ -245,7 +324,6 @@ export class PhysicsScene {
       return this.raycast(ray, distance, layerMask);
     }
 
-    const pool = PhysicsScene._raycastHitPool;
     let hitCount = 0;
     const normalizedDirection = distance > 0 ? this._syncCastDirection(ray.direction) : null;
     if (normalizedDirection) {
@@ -253,32 +331,20 @@ export class PhysicsScene {
         ray.origin,
         normalizedDirection,
         distance,
-        layerMask,
-        (colliderID: number, hitDistance: number, position: Vector3, normal: Vector3) => {
-          const hitResult = (outHitResults[hitCount++] ||= pool.pop() ?? new HitResult());
-          this._setHitResult(hitResult, colliderID, hitDistance, position, normal);
+        PhysicsScene._prepareQueryFilter(layerMask),
+        (id, hitDistance, position, normal, triangleIndex) => {
+          this._setHitResult(
+            PhysicsScene._castHit(outHitResults, hitCount++),
+            id,
+            hitDistance,
+            position,
+            normal,
+            triangleIndex
+          );
         }
       );
     }
-    const length = outHitResults.length;
-    if (hitCount < length) {
-      // Caller entries can alias retained hits or each other. Recycle only unreferenced objects once.
-      const seenHits = PhysicsScene._raycastSeenHits;
-      for (let i = 0; i < hitCount; i++) {
-        seenHits.add(outHitResults[i]);
-      }
-      for (let i = hitCount; i < length; i++) {
-        const hitResult = outHitResults[i];
-        if (hitResult && !seenHits.has(hitResult)) {
-          seenHits.add(hitResult);
-          this._clearHitResult(hitResult);
-          pool.push(hitResult);
-        }
-      }
-      seenHits.clear();
-    }
-    outHitResults.length = hitCount;
-    return hitCount > 0;
+    return this._trimCastHits(outHitResults, hitCount);
   }
 
   /**
@@ -322,7 +388,7 @@ export class PhysicsScene {
    * @param direction - Sweep direction in world space.
    * @param orientation - Rotation of the box in world space.
    * @param distance - Maximum distance in world units.
-   * @param layerMask - Collision layers to include.
+   * @param layerMask - Collision layers or filters to apply.
    * @param outHitResult - Receives the closest hit.
    */
   boxCast(
@@ -331,7 +397,19 @@ export class PhysicsScene {
     direction: Vector3,
     orientation: Quaternion,
     distance: number,
-    layerMask: Layer,
+    layerMask: Layer | PhysicsQueryFilter,
+    outHitResult?: HitResult
+  ): boolean;
+
+  /**
+   * Sweeps the shape using its default orientation and filters results by collision layer.
+   */
+  boxCast(
+    center: Vector3,
+    halfExtents: Vector3,
+    direction: Vector3,
+    distance: number,
+    layerMask: Layer | PhysicsQueryFilter,
     outHitResult?: HitResult
   ): boolean;
 
@@ -340,27 +418,30 @@ export class PhysicsScene {
     halfExtents: Vector3,
     direction: Vector3,
     orientationOrDistanceOrResult?: Quaternion | number | HitResult,
-    distanceOrResult?: number | HitResult,
-    layerMaskOrResult?: Layer | HitResult,
+    distanceOrResult?: number | PhysicsQueryFilter | HitResult,
+    layerMaskOrResult?: Layer | PhysicsQueryFilter | HitResult,
     outHitResult?: HitResult
   ): boolean {
     let hitResult: HitResult | undefined;
     let orientation = PhysicsScene._identityQuaternion;
     let distance = Number.MAX_VALUE;
-    let layerMask = Layer.Everything;
+    let layerMask: Layer | PhysicsQueryFilter = Layer.Everything;
 
     if (typeof orientationOrDistanceOrResult === "number") {
       distance = orientationOrDistanceOrResult;
-      if (distanceOrResult?.constructor === HitResult) {
+      if (distanceOrResult instanceof HitResult) {
         hitResult = distanceOrResult;
+      } else if (distanceOrResult !== undefined) {
+        layerMask = distanceOrResult;
+        hitResult = layerMaskOrResult instanceof HitResult ? layerMaskOrResult : undefined;
       }
-    } else if (orientationOrDistanceOrResult?.constructor === HitResult) {
+    } else if (orientationOrDistanceOrResult instanceof HitResult) {
       hitResult = orientationOrDistanceOrResult;
-    } else if (orientationOrDistanceOrResult?.constructor === Quaternion) {
+    } else if (orientationOrDistanceOrResult instanceof Quaternion) {
       orientation = orientationOrDistanceOrResult;
       if (typeof distanceOrResult === "number") {
         distance = distanceOrResult;
-        if (typeof layerMaskOrResult === "number") {
+        if (layerMaskOrResult !== undefined && !(layerMaskOrResult instanceof HitResult)) {
           layerMask = layerMaskOrResult;
         }
       }
@@ -381,7 +462,7 @@ export class PhysicsScene {
         halfExtents,
         normalizedDirection,
         distance,
-        layerMask,
+        PhysicsScene._prepareQueryFilter(layerMask),
         hitResult ? this._createHitCallback(hitResult) : undefined
       );
     }
@@ -422,7 +503,7 @@ export class PhysicsScene {
    * @param radius - Radius in world units.
    * @param direction - Sweep direction in world space.
    * @param distance - Maximum distance in world units.
-   * @param layerMask - Collision layers to include.
+   * @param layerMask - Collision layers or filters to apply.
    * @param outHitResult - Receives the closest hit.
    */
   sphereCast(
@@ -430,7 +511,7 @@ export class PhysicsScene {
     radius: number,
     direction: Vector3,
     distance: number,
-    layerMask: Layer,
+    layerMask: Layer | PhysicsQueryFilter,
     outHitResult?: HitResult
   ): boolean;
 
@@ -439,21 +520,21 @@ export class PhysicsScene {
     radius: number,
     direction: Vector3,
     distanceOrResult?: number | HitResult,
-    layerMaskOrResult?: Layer | HitResult,
+    layerMaskOrResult?: Layer | PhysicsQueryFilter | HitResult,
     outHitResult?: HitResult
   ): boolean {
     let hitResult: HitResult | undefined;
     let distance = Number.MAX_VALUE;
-    let layerMask = Layer.Everything;
+    let layerMask: Layer | PhysicsQueryFilter = Layer.Everything;
 
     if (typeof distanceOrResult === "number") {
       distance = distanceOrResult;
-      if (layerMaskOrResult?.constructor === HitResult) {
+      if (layerMaskOrResult instanceof HitResult) {
         hitResult = layerMaskOrResult;
-      } else if (typeof layerMaskOrResult === "number") {
+      } else if (layerMaskOrResult !== undefined) {
         layerMask = layerMaskOrResult;
       }
-    } else if (distanceOrResult?.constructor === HitResult) {
+    } else if (distanceOrResult instanceof HitResult) {
       hitResult = distanceOrResult;
     }
 
@@ -471,7 +552,7 @@ export class PhysicsScene {
         radius,
         normalizedDirection,
         distance,
-        layerMask,
+        PhysicsScene._prepareQueryFilter(layerMask),
         hitResult ? this._createHitCallback(hitResult) : undefined
       );
     }
@@ -523,9 +604,9 @@ export class PhysicsScene {
    * @param radius - Radius in world units.
    * @param height - Total height in world units, including both caps. Must exceed twice the radius.
    * @param direction - Sweep direction in world space.
-   * @param orientation - World-space rotation of the capsule, whose local long axis is X.
+   * @param orientation - World-space rotation of the capsule, whose local long axis is Y.
    * @param distance - Maximum distance in world units.
-   * @param layerMask - Collision layers to include.
+   * @param layerMask - Collision layers or filters to apply.
    * @param outHitResult - Receives the closest hit.
    */
   capsuleCast(
@@ -535,7 +616,20 @@ export class PhysicsScene {
     direction: Vector3,
     orientation: Quaternion,
     distance: number,
-    layerMask: Layer,
+    layerMask: Layer | PhysicsQueryFilter,
+    outHitResult?: HitResult
+  ): boolean;
+
+  /**
+   * Sweeps the shape using its default orientation and filters results by collision layer.
+   */
+  capsuleCast(
+    center: Vector3,
+    radius: number,
+    height: number,
+    direction: Vector3,
+    distance: number,
+    layerMask: Layer | PhysicsQueryFilter,
     outHitResult?: HitResult
   ): boolean;
 
@@ -545,27 +639,30 @@ export class PhysicsScene {
     height: number,
     direction: Vector3,
     orientationOrDistanceOrResult?: Quaternion | number | HitResult,
-    distanceOrResult?: number | HitResult,
-    layerMaskOrResult?: Layer | HitResult,
+    distanceOrResult?: number | PhysicsQueryFilter | HitResult,
+    layerMaskOrResult?: Layer | PhysicsQueryFilter | HitResult,
     outHitResult?: HitResult
   ): boolean {
     let hitResult: HitResult | undefined;
     let orientation = PhysicsScene._identityQuaternion;
     let distance = Number.MAX_VALUE;
-    let layerMask = Layer.Everything;
+    let layerMask: Layer | PhysicsQueryFilter = Layer.Everything;
 
     if (typeof orientationOrDistanceOrResult === "number") {
       distance = orientationOrDistanceOrResult;
-      if (distanceOrResult?.constructor === HitResult) {
+      if (distanceOrResult instanceof HitResult) {
         hitResult = distanceOrResult;
+      } else if (distanceOrResult !== undefined) {
+        layerMask = distanceOrResult;
+        hitResult = layerMaskOrResult instanceof HitResult ? layerMaskOrResult : undefined;
       }
-    } else if (orientationOrDistanceOrResult?.constructor === HitResult) {
+    } else if (orientationOrDistanceOrResult instanceof HitResult) {
       hitResult = orientationOrDistanceOrResult;
-    } else if (orientationOrDistanceOrResult?.constructor === Quaternion) {
+    } else if (orientationOrDistanceOrResult instanceof Quaternion) {
       orientation = orientationOrDistanceOrResult;
       if (typeof distanceOrResult === "number") {
         distance = distanceOrResult;
-        if (typeof layerMaskOrResult === "number") {
+        if (layerMaskOrResult !== undefined && !(layerMaskOrResult instanceof HitResult)) {
           layerMask = layerMaskOrResult;
         }
       }
@@ -590,7 +687,7 @@ export class PhysicsScene {
         orientation,
         normalizedDirection,
         distance,
-        layerMask,
+        PhysicsScene._prepareQueryFilter(layerMask),
         hitResult ? this._createHitCallback(hitResult) : undefined
       );
     }
@@ -602,11 +699,116 @@ export class PhysicsScene {
   }
 
   /**
+   * Writes all positive-distance box sweep hits in unspecified order.
+   * @param halfExtents - Half the box size along each local axis, in world units.
+   * @param outHits - Reusable output array. Discard references to entries removed by the query.
+   */
+  boxCastAll(
+    center: Vector3,
+    halfExtents: Vector3,
+    direction: Vector3,
+    outHits: HitResult[],
+    distance = Number.MAX_VALUE,
+    filter: Layer | PhysicsQueryFilter = Layer.Everything,
+    orientation = PhysicsScene._identityQuaternion
+  ): boolean {
+    let count = 0;
+    const normalized =
+      distance > 0 && PhysicsScene._isValidBoxExtents(halfExtents) && this._syncCastDirection(direction);
+    if (normalized) {
+      this._nativePhysicsScene.boxCast(
+        center,
+        orientation,
+        halfExtents,
+        normalized,
+        distance,
+        PhysicsScene._prepareQueryFilter(filter),
+        (id, d, position, normal, triangleIndex) => {
+          this._setHitResult(PhysicsScene._castHit(outHits, count++), id, d, position, normal, triangleIndex);
+        },
+        true
+      );
+    }
+    return this._trimCastHits(outHits, count);
+  }
+
+  /**
+   * Writes all positive-distance sphere sweep hits in unspecified order.
+   * @param outHits - Reusable output array. Discard references to entries removed by the query.
+   */
+  sphereCastAll(
+    center: Vector3,
+    radius: number,
+    direction: Vector3,
+    outHits: HitResult[],
+    distance = Number.MAX_VALUE,
+    filter: Layer | PhysicsQueryFilter = Layer.Everything
+  ): boolean {
+    let count = 0;
+    const normalized = distance > 0 && Collider._isValidPositiveFloat32(radius) && this._syncCastDirection(direction);
+    if (normalized) {
+      this._nativePhysicsScene.sphereCast(
+        center,
+        radius,
+        normalized,
+        distance,
+        PhysicsScene._prepareQueryFilter(filter),
+        (id, d, position, normal, triangleIndex) => {
+          this._setHitResult(PhysicsScene._castHit(outHits, count++), id, d, position, normal, triangleIndex);
+        },
+        true
+      );
+    }
+    return this._trimCastHits(outHits, count);
+  }
+
+  /**
+   * Writes all positive-distance capsule sweep hits in unspecified order.
+   * @param height - Total height including both caps. Must exceed twice the radius.
+   * @param outHits - Reusable output array. Discard references to entries removed by the query.
+   * @param orientation - Rotation from the capsule's default Y axis.
+   */
+  capsuleCastAll(
+    center: Vector3,
+    radius: number,
+    height: number,
+    direction: Vector3,
+    outHits: HitResult[],
+    distance = Number.MAX_VALUE,
+    filter: Layer | PhysicsQueryFilter = Layer.Everything,
+    orientation = PhysicsScene._identityQuaternion
+  ): boolean {
+    let count = 0;
+    const cylinderHeight = height - 2 * radius;
+    const normalized =
+      distance > 0 &&
+      Collider._isValidPositiveFloat32(radius) &&
+      Collider._isValidPositiveFloat32(cylinderHeight * 0.5) &&
+      this._syncCastDirection(direction);
+    if (normalized) {
+      this._nativePhysicsScene.capsuleCast(
+        center,
+        radius,
+        cylinderHeight,
+        orientation,
+        normalized,
+        distance,
+        PhysicsScene._prepareQueryFilter(filter),
+        (id, d, position, normal, triangleIndex) => {
+          this._setHitResult(PhysicsScene._castHit(outHits, count++), id, d, position, normal, triangleIndex);
+        },
+        true
+      );
+    }
+    return this._trimCastHits(outHits, count);
+  }
+
+  /**
    * Finds the colliders overlapping a box.
    * @param center - Center in world space.
    * @param halfExtents - Half the box size along each of its axes, in world units.
    * @param orientation - Rotation of the box in world space. Defaults to the identity rotation.
-   * @param layerMask - Collision layers to include. Defaults to `Layer.Everything`.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
    * @param colliders - Output array whose contents are replaced. Omit to allocate an array.
    * @returns The output array, emptied when the dimensions are invalid or there are no overlaps.
    */
@@ -614,7 +816,7 @@ export class PhysicsScene {
     center: Vector3,
     halfExtents: Vector3,
     orientation: Quaternion = PhysicsScene._identityQuaternion,
-    layerMask: Layer = Layer.Everything,
+    layerMask: Layer | PhysicsQueryFilter = Layer.Everything,
     colliders: Collider[] = []
   ): Collider[] {
     if (!PhysicsScene._isValidBoxExtents(halfExtents)) {
@@ -622,7 +824,12 @@ export class PhysicsScene {
       return colliders;
     }
     this._syncColliders();
-    const ids = this._nativePhysicsScene.overlapBoxAll(center, orientation, halfExtents, layerMask);
+    const ids = this._nativePhysicsScene.overlapBoxAll(
+      center,
+      orientation,
+      halfExtents,
+      PhysicsScene._prepareQueryFilter(layerMask)
+    );
 
     return PhysicsScene._collectColliders(ids, colliders);
   }
@@ -631,14 +838,14 @@ export class PhysicsScene {
    * Finds the colliders overlapping a sphere.
    * @param center - Center in world space.
    * @param radius - Radius in world units.
-   * @param layerMask - Collision layers to include. Defaults to `Layer.Everything`.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
    * @param colliders - Output array whose contents are replaced. Omit to allocate an array.
    * @returns The output array, emptied when the dimensions are invalid or there are no overlaps.
    */
   overlapSphereAll(
     center: Vector3,
     radius: number,
-    layerMask: Layer = Layer.Everything,
+    layerMask: Layer | PhysicsQueryFilter = Layer.Everything,
     colliders: Collider[] = []
   ): Collider[] {
     if (!Collider._isValidPositiveFloat32(radius)) {
@@ -646,7 +853,7 @@ export class PhysicsScene {
       return colliders;
     }
     this._syncColliders();
-    const ids = this._nativePhysicsScene.overlapSphereAll(center, radius, layerMask);
+    const ids = this._nativePhysicsScene.overlapSphereAll(center, radius, PhysicsScene._prepareQueryFilter(layerMask));
 
     return PhysicsScene._collectColliders(ids, colliders);
   }
@@ -656,8 +863,8 @@ export class PhysicsScene {
    * @param center - Center in world space.
    * @param radius - Radius in world units.
    * @param height - Total height in world units, including both caps. Must exceed twice the radius.
-   * @param orientation - World-space rotation of the capsule, whose local long axis is X. Defaults to the identity rotation.
-   * @param layerMask - Collision layers to include. Defaults to `Layer.Everything`.
+   * @param orientation - World-space rotation of the capsule, whose local long axis is Y. Defaults to the identity rotation.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
    * @param colliders - Output array whose contents are replaced. Omit to allocate an array.
    * @returns The output array, emptied when the dimensions are invalid or there are no overlaps.
    */
@@ -666,7 +873,7 @@ export class PhysicsScene {
     radius: number,
     height: number,
     orientation: Quaternion = PhysicsScene._identityQuaternion,
-    layerMask: Layer = Layer.Everything,
+    layerMask: Layer | PhysicsQueryFilter = Layer.Everything,
     colliders: Collider[] = []
   ): Collider[] {
     const cylinderHeight = height - 2 * radius;
@@ -675,26 +882,62 @@ export class PhysicsScene {
       return colliders;
     }
     this._syncColliders();
-    const ids = this._nativePhysicsScene.overlapCapsuleAll(center, radius, cylinderHeight, orientation, layerMask);
+    const ids = this._nativePhysicsScene.overlapCapsuleAll(
+      center,
+      radius,
+      cylinderHeight,
+      orientation,
+      PhysicsScene._prepareQueryFilter(layerMask)
+    );
 
     return PhysicsScene._collectColliders(ids, colliders);
   }
 
   /**
-   * Call on every frame to update pose of objects.
+   * Advances the simulation by one step when automatic simulation is disabled.
+   * @param deltaTime - Duration of the step in seconds. Defaults to the fixed timestep.
+   * @throws When automatic simulation is enabled, the scene cannot simulate, or the timestep is invalid.
+   */
+  step(deltaTime = this._fixedTimeStep): void {
+    if (this.autoSimulation || !this._nativePhysicsScene || this._scene.destroyed || !this._scene.isActive) {
+      throw new Error("PhysicsScene.step requires an active physics scene with automatic simulation disabled.");
+    }
+    if (!Collider._isValidPositiveFloat32(deltaTime)) {
+      throw new Error("PhysicsScene.step requires a positive finite timestep.");
+    }
+    this._step(deltaTime, true);
+  }
+
+  /**
+   * Accumulates elapsed time and runs complete fixed steps.
    * @internal
    */
-  _update(deltaTime: number): void {
-    const { _fixedTimeStep: fixedTimeStep, _nativePhysicsScene: nativePhysicsScene, _bodies: bodies } = this;
-    const componentsManager = this._scene._componentsManager;
-
+  _update(deltaTime: number, maxSteps = Infinity): void {
+    if (this._stepping) throw new Error("PhysicsScene cannot step while it is already simulating.");
+    const fixedTimeStep = this._fixedTimeStep;
     const simulateTime = this._restTime + deltaTime;
-    const step = Math.floor(simulateTime / fixedTimeStep);
-    this._restTime = simulateTime - step * fixedTimeStep;
-    for (let i = 0; i < step; i++) {
-      componentsManager.callScriptOnPhysicsUpdate();
+    const elapsedSteps = Math.floor(simulateTime / fixedTimeStep);
+    this._restTime = simulateTime - elapsedSteps * fixedTimeStep;
+    const steps = Math.min(elapsedSteps, maxSteps);
+    for (let i = 0; i < steps && !this._scene.destroyed && this._scene.isActive; i++) {
+      this._step(fixedTimeStep, false);
+    }
+  }
+
+  private _step(deltaTime: number, startScripts: boolean): void {
+    if (this._stepping) throw new Error("PhysicsScene cannot step while it is already simulating.");
+    this._stepping = true;
+    try {
+      const scene = this._scene;
+      const componentsManager = scene._componentsManager;
+      if (startScripts) componentsManager.callScriptOnStart();
+      if (scene.destroyed || !scene.isActive) return;
+      componentsManager.callScriptOnPhysicsUpdate(deltaTime);
+      if (scene.destroyed || !scene.isActive) return;
+      const { _nativePhysicsScene: nativePhysicsScene, _bodies: bodies } = this;
       this._syncColliders();
-      nativePhysicsScene.update(fixedTimeStep);
+      if (scene.destroyed) return;
+      nativePhysicsScene.update(deltaTime);
       if (this._bodyOrderDirty && !bodies.isLopping) {
         this._sortBodies();
       }
@@ -715,7 +958,9 @@ export class PhysicsScene {
           poses.push(pose);
         }
       }
-      this._dispatchEvents(nativePhysicsScene.updateEvents());
+      if (!scene.destroyed) this._dispatchEvents(nativePhysicsScene.updateEvents());
+    } finally {
+      this._stepping = false;
     }
   }
 
@@ -751,6 +996,7 @@ export class PhysicsScene {
   _removeCollider(collider: Collider): void {
     PhysicsScene._removeDirty(this._dirtyColliders, collider);
     collider._detach(this);
+    this._nativePhysicsScene?.removeIgnoredPairs(collider._id);
   }
 
   /**
@@ -832,6 +1078,18 @@ export class PhysicsScene {
   /**
    * @internal
    */
+  _registerJoint(joint: Joint): number {
+    const id = ++this._nextJointId;
+    this._joints.set(id, joint);
+    return id;
+  }
+
+  /** @internal */
+  _unregisterJoint(id: number): void {
+    this._joints.delete(id);
+  }
+
+  /** @internal */
   _addContactEventConsumer(delta: 1 | -1): void {
     const wasEnabled = this._contactEventConsumerCount > 0;
     this._contactEventConsumerCount += delta;
@@ -859,6 +1117,7 @@ export class PhysicsScene {
     this._gravity._onValueChanged = null;
     PhysicsScene._raycastHitPool.length = 0;
     PhysicsScene._raycastSeenHits.clear();
+    this._joints.clear();
     this._nativePhysicsScene?.destroy();
     this._nativePhysicsScene = null!;
   }
@@ -887,7 +1146,7 @@ export class PhysicsScene {
 
   private _dispatchEvents(events: IPhysicsEvents): void {
     const physicalObjectsMap = Engine._physicalObjectsMap;
-    const { contactEvents, contactEventCount, triggerEvents } = events;
+    const { contactEvents, contactEventCount, triggerEvents, brokenJointIds } = events;
 
     if (contactEventCount > 0) {
       const collision = (this._collision ||= new Collision());
@@ -918,6 +1177,25 @@ export class PhysicsScene {
       PhysicsScene._dispatchScripts(state, collider0, collider1);
       PhysicsScene._dispatchScripts(state, collider1, collider0);
     }
+
+    const joints = this._joints;
+    for (let i = 0; i < brokenJointIds.length; i++) {
+      const id = brokenJointIds[i];
+      const joint = joints.get(id);
+      if (!joint) continue;
+      const scripts = joint.entity._scripts;
+      const count = scripts.length;
+      scripts._startLoop();
+      try {
+        const elements = scripts._elements;
+        for (let j = 0; j < count; j++) {
+          elements[j]?.onJointBreak(joint);
+          if (!joints.has(id)) break;
+        }
+      } finally {
+        scripts._endLoop(PhysicsScene._scriptIndexSetter);
+      }
+    }
   }
 
   private static _dispatchScripts(
@@ -927,7 +1205,22 @@ export class PhysicsScene {
     collision?: Collision
   ): void {
     if (self.destroyed || other.destroyed) return;
-    const scripts = self.entity._scripts;
+    const entity = self.entity;
+    const body = self._attachedBody;
+    PhysicsScene._dispatchEntityScripts(state, entity, self, other, collision);
+    if (body && body.entity !== entity && body._index !== -1 && !self.destroyed && !other.destroyed) {
+      PhysicsScene._dispatchEntityScripts(state, body.entity, self, other, collision);
+    }
+  }
+
+  private static _dispatchEntityScripts(
+    state: PhysicsEventState,
+    target: Entity,
+    self: Collider,
+    other: Collider,
+    collision?: Collision
+  ): void {
+    const scripts = target._scripts;
     const count = scripts.length;
     if (count === 0) return;
     scripts._startLoop();
@@ -969,6 +1262,33 @@ export class PhysicsScene {
     }
   }
 
+  private static _prepareQueryFilter(options: Layer | PhysicsQueryFilter): IPhysicsQueryFilter {
+    const filter = PhysicsScene._queryFilter;
+    if (typeof options === "number") {
+      filter.layerMask = options;
+      filter.includeTriggers = true;
+      filter.hitBackfaces = false;
+      filter.excludedShapeIds.length = 0;
+      return filter;
+    }
+
+    // A filter getter can run another query before this one submits its direction and policy.
+    const direction = PhysicsScene._tempDirection;
+    const { x, y, z } = direction;
+    const { layerMask, includeTriggers, hitBackfaces, exclude: excluded } = options;
+    const count = excluded?.length ?? 0;
+    direction.set(x, y, z);
+    filter.layerMask = layerMask ?? Layer.Everything;
+    filter.includeTriggers = includeTriggers !== false;
+    filter.hitBackfaces = hitBackfaces === true;
+    const ids = filter.excludedShapeIds;
+    ids.length = count;
+    for (let i = 0; i < count; i++) {
+      ids[i] = excluded![i]._id;
+    }
+    return filter;
+  }
+
   private static _collectColliders(ids: ArrayLike<number>, out: Collider[]): Collider[] {
     const physicalObjectsMap = Engine._physicalObjectsMap;
     out.length = 0;
@@ -986,6 +1306,32 @@ export class PhysicsScene {
     );
   }
 
+  private _raycast(
+    origin: Vector3,
+    direction: Vector3,
+    distance: number,
+    filter: Layer | PhysicsQueryFilter,
+    hitResult?: HitResult
+  ): boolean {
+    const normalizedDirection = distance > 0 ? this._syncCastDirection(direction) : null;
+
+    let result = false;
+    if (normalizedDirection) {
+      result = this._nativePhysicsScene.raycast(
+        origin,
+        normalizedDirection,
+        distance,
+        PhysicsScene._prepareQueryFilter(filter),
+        hitResult ? this._createHitCallback(hitResult) : undefined
+      );
+    }
+
+    if (!result && hitResult) {
+      this._clearHitResult(hitResult);
+    }
+    return result;
+  }
+
   private _syncCastDirection(direction: Vector3): Vector3 | null {
     const { x, y, z } = direction;
     const length = Math.sqrt(x * x + y * y + z * z);
@@ -996,15 +1342,40 @@ export class PhysicsScene {
     return PhysicsScene._tempDirection.set(x * inverseLength, y * inverseLength, z * inverseLength);
   }
 
+  private static _castHit(hits: HitResult[], index: number): HitResult {
+    return (hits[index] ||= PhysicsScene._raycastHitPool.pop() ?? new HitResult());
+  }
+
+  private _trimCastHits(outHitResults: HitResult[], hitCount: number): boolean {
+    const pool = PhysicsScene._raycastHitPool;
+    const length = outHitResults.length;
+    if (hitCount < length) {
+      // Caller entries can alias retained hits or each other. Recycle only unreferenced objects once.
+      const seenHits = PhysicsScene._raycastSeenHits;
+      for (let i = 0; i < hitCount; i++) {
+        seenHits.add(outHitResults[i]);
+      }
+      for (let i = hitCount; i < length; i++) {
+        const hitResult = outHitResults[i];
+        if (hitResult && !seenHits.has(hitResult)) {
+          seenHits.add(hitResult);
+          this._clearHitResult(hitResult);
+          pool.push(hitResult);
+        }
+      }
+      seenHits.clear();
+    }
+    outHitResults.length = hitCount;
+    return hitCount > 0;
+  }
+
   private _setGravity(): void {
     this._nativePhysicsScene.setGravity(this._gravity);
   }
 
-  private _createHitCallback(
-    outHitResult: HitResult
-  ): (colliderID: number, distance: number, position: Vector3, normal: Vector3) => void {
-    return (colliderID: number, distance: number, position: Vector3, normal: Vector3) => {
-      this._setHitResult(outHitResult, colliderID, distance, position, normal);
+  private _createHitCallback(outHitResult: HitResult): IPhysicsQueryHit {
+    return (id, distance, position, normal, triangleIndex) => {
+      this._setHitResult(outHitResult, id, distance, position, normal, triangleIndex);
     };
   }
 
@@ -1013,12 +1384,14 @@ export class PhysicsScene {
     colliderID: number,
     distance: number,
     position: Vector3,
-    normal: Vector3
+    normal: Vector3,
+    triangleIndex: number
   ): void {
     const collider = Engine._physicalObjectsMap[colliderID];
     outHitResult.entity = collider.entity;
     outHitResult.collider = collider;
     outHitResult.distance = distance;
+    outHitResult.triangleIndex = triangleIndex;
     outHitResult.point.copyFrom(position);
     outHitResult.normal.copyFrom(normal);
   }
@@ -1027,6 +1400,7 @@ export class PhysicsScene {
     hitResult.entity = null;
     hitResult.collider = null;
     hitResult.distance = 0;
+    hitResult.triangleIndex = -1;
     hitResult.point.set(0, 0, 0);
     hitResult.normal.set(0, 0, 0);
   }

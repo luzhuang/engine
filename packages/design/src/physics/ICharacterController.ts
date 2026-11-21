@@ -1,6 +1,21 @@
 import { Vector3 } from "@galacean/engine-math";
 import { IPhysicsMaterial } from "./IPhysicsMaterial";
 
+/** One contact reported during a controller sweep. */
+export interface IControllerMoveHit {
+  colliderId: number;
+  point: Vector3;
+  normal: Vector3;
+  moveDirection: Vector3;
+  moveLength: number;
+}
+
+/** Reusable storage for the contacts produced by one move. */
+export interface IControllerMoveHits {
+  readonly hits: IControllerMoveHit[];
+  count: number;
+}
+
 /**
  * Native character controller with its own geometry.
  * @remarks The caller applies entity scale to geometry dimensions and the center offset before passing them in.
@@ -39,6 +54,9 @@ export interface ICharacterController {
    */
   setCollisionLayer(layer: number): void;
 
+  /** Sets explicit collision layer inclusions and exclusions. Exclusions have precedence. */
+  setLayerOverrides(include: number, exclude: number): void;
+
   /**
    * Control whether scene queries can hit the controller.
    * @param value - Whether the controller participates in scene queries
@@ -50,9 +68,32 @@ export interface ICharacterController {
    * @param disp - World-space displacement
    * @param minDist - The remaining distance threshold for stopping the move
    * @param elapsedTime - Time in seconds since the last call
+   * @param outHits - Optional storage for contacts from this move
    * @returns The collision flags, or zero if the native controller is unavailable
    */
-  move(disp: Vector3, minDist: number, elapsedTime: number): number;
+  move(disp: Vector3, minDist: number, elapsedTime: number, outHits?: IControllerMoveHits): number;
+
+  /**
+   * Change the controller's height while preserving its foot.
+   * @param height - The box half-height or the capsule's cylindrical height in world units
+   * @param stepOffset - The requested step height
+   * @returns Whether the controller was resized
+   */
+  resize(height: number, stepOffset: number): boolean;
+
+  /**
+   * Writes the foot position in world space, including the contact offset.
+   * @param out - Receives the foot position if the controller is available
+   * @returns Whether the output was written
+   */
+  getFootPosition(out: Vector3): boolean;
+
+  /**
+   * Teleport the controller's foot to a world-space position.
+   * @param position - The position of the foot including the contact offset
+   * @returns Whether the position was applied
+   */
+  setFootPosition(position: Vector3): boolean;
 
   /**
    * Place the controller's geometry at the sum of the world position and the center offset.
@@ -72,6 +113,12 @@ export interface ICharacterController {
    * @param flag - The non-walkable mode
    */
   setNonWalkableMode(flag: number): void;
+
+  /**
+   * Set how capsule geometry climbs over steps.
+   * @param mode - The capsule climbing mode
+   */
+  setClimbingMode(mode: number): void;
 
   /**
    * Set the up direction.

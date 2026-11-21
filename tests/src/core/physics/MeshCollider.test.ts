@@ -93,6 +93,36 @@ describe("MeshCollider", () => {
     return collider;
   }
 
+  it.each([false, true])("mirrors offset mesh geometry without changing its entity (convex=%s)", (convex) => {
+    const collider = addMesh(convex, createCubeMesh(engine, 1, 3));
+    const hit = new HitResult();
+    expect(physics.raycast(rayAt(3), hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+
+    collider.entity.transform.setScale(-1, 1, 1);
+    expect(physics.raycast(rayAt(3), hit)).toBe(false);
+    expect(physics.raycast(rayAt(-3), hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+  });
+
+  it("queries either side of a triangle with the original face index", () => {
+    const collider = addMesh(false, createModelMesh(engine, [-2, 0, -2, 0, 0, 2, 2, 0, -2], [0, 1, 2]));
+    const backRay = new Ray(new Vector3(0, -2, 0), new Vector3(0, 1, 0));
+    const hit = new HitResult();
+
+    expect(physics.raycast(rayAt(0), hit)).toBe(true);
+    expect(hit.triangleIndex).toBe(0);
+    expect(physics.raycast(backRay, hit)).toBe(false);
+    expect(hit.triangleIndex).toBe(-1);
+    expect(physics.raycast(backRay, 3, { hitBackfaces: true }, hit)).toBe(true);
+    expect(hit.triangleIndex).toBe(0);
+
+    collider.doubleSided = true;
+    expect(physics.raycast(backRay, hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+    expect(hit.triangleIndex).toBe(0);
+  });
+
   function addTriggerProbe(radius = 1.5): CollisionRecorder {
     const entity = root.createChild("probe");
     const sphere = entity.addComponent(SphereCollider);

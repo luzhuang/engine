@@ -48,7 +48,8 @@ All Collider components share these properties:
 | [**isTrigger**](/apis/core/#Collider-isTrigger) | Whether the Collider is a trigger, which reports overlaps without a collision response. See [Collision Events](/en/docs/physics/collider/event) | false |
 | [**material**](/apis/core/#Collider-material) | The assigned [physics material](#physics-material), or `null` to use the shared default material | null |
 | [**collisionLayer**](/apis/core/#Collider-collisionLayer) | The collision layer of this Collider, a single layer only. See [Collision Layer](/en/docs/physics/collider/collisionLayer) | Layer.Layer0 |
-| [**contactOffset**](/apis/core/#Collider-contactOffset) | Contact offset. Non-finite values throw; negative values are clamped to 0 | 0.02 |
+| [**contactOffset**](/apis/core/#Collider-contactOffset) | Positive contact offset in world units | 0.02 |
+| [**includeLayers**](/apis/core/#Collider-includeLayers), [**excludeLayers**](/apis/core/#Collider-excludeLayers) | Per-collider overrides for the scene collision matrix. Exclusions take precedence | 0 |
 | [**attachedRigidbody**](/apis/core/#Collider-attachedRigidbody) | Read-only. The Rigidbody that owns this Collider, or `null` | - |
 
 Shape sizes follow the Entity's world scale. Physics ignores shear, which can occur when an Entity rotates under a non-uniformly scaled ancestor. With logging enabled, the Collider warns once.
@@ -90,7 +91,26 @@ PlaneCollider has no shape properties. It is an infinite plane facing the Entity
 | :-- | :-- | :-- |
 | [**mesh**](/apis/core/#MeshCollider-mesh) | The [ModelMesh](/apis/core/#ModelMesh) used for collision. Its data must stay accessible after upload, and a triangle mesh also needs indices; invalid meshes are excluded from simulation and queries until replaced with a valid mesh | null |
 | [**convex**](/apis/core/#MeshCollider-convex) | Whether to use a convex hull generated from the mesh vertices. A non-convex mesh cannot be a trigger or belong to a non-kinematic Rigidbody; invalid combinations are excluded until resolved | false |
+| [**doubleSided**](/apis/core/#MeshCollider-doubleSided) | Include triangle back faces in scene queries | false |
 | [**cookingFlags**](/apis/core/#MeshCollider-cookingFlags) | Mesh cooking flags | Cleaning \| VertexWelding |
+
+### HeightFieldCollider
+
+Use `HeightFieldCollider` for terrain stored as a grid. Rows extend along local X and columns along local Z. Each signed 16-bit sample is multiplied by `heightScale` to get its height along local Y. The grid starts at the collider's local `center`.
+
+```typescript
+const terrain = entity.addComponent(HeightFieldCollider);
+terrain.setHeightField({
+  rows: 2,
+  columns: 3,
+  heights: new Int16Array([0, 2, 0, 1, 3, 1]),
+  rowScale: 4,
+  columnScale: 2,
+  heightScale: 0.25
+});
+```
+
+Supply one value per vertex in row-major order. The method copies the samples, so you can reuse the input. Pass `null` to remove the terrain, or use a plain numeric array in a scene or prefab's `setHeightField` call. Heightfields require positive world scale and can be static or owned by a kinematic Rigidbody.
 
 ## Physics Material
 

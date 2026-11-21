@@ -5,7 +5,7 @@ import {
   IPhysicsMaterial,
   IStaticCollider
 } from "@galacean/engine-design";
-import { MathUtil, Matrix, Quaternion, Vector3 } from "@galacean/engine-math";
+import { BoundingBox, MathUtil, Matrix, Quaternion, Vector3 } from "@galacean/engine-math";
 import { Logger } from "../base";
 import { BasicResources } from "../BasicResources";
 import { ignoreClone } from "../clone/CloneDecorators";
@@ -88,6 +88,8 @@ export class Collider extends Component implements ICloneHook<Collider> {
 
   /** Index of the single collision layer. */
   protected _collisionLayerIndex = 0;
+  protected _includeLayers = Layer.Nothing;
+  protected _excludeLayers = Layer.Nothing;
   @ignoreClone
   protected _geometryDirty = false;
   @ignoreClone
@@ -132,7 +134,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
 
   /**
    * The center of the Collider in the Entity's local space.
-   * @remarks The center is scaled by the absolute world scale, so a negative scale does not mirror it.
+   * @remarks The entity’s world scale applies to this offset, including reflections.
    */
   get center(): Vector3 {
     return this._center;
@@ -170,8 +172,6 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   /**
-   * @internal
-   * @beta
    * Whether raycasts, shape casts, and overlap queries can find this Collider. Simulation uses its collision flags
    * independently.
    */
@@ -187,16 +187,18 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   /**
-   * The contact offset in world units. Ordinary colliders clamp finite negative values to 0.
+   * The positive contact offset in world units.
    * @defaultValue 0.02
-   * @throws When the value is non-finite, or when a CharacterController receives a non-positive value.
+   * @throws When the value is not a positive finite Float32.
    */
   get contactOffset(): number {
     return this._contactOffset;
   }
 
   set contactOffset(value: number) {
-    value = this._validateContactOffset(value);
+    if (!Collider._isValidPositiveFloat32(value)) {
+      throw new RangeError("Collider contactOffset must be positive and finite.");
+    }
     if (this._contactOffset !== value) {
       this._contactOffset = value;
       this._onContactOffsetChanged(value);
@@ -243,6 +245,30 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (this._collisionLayerIndex !== index) {
       this._collisionLayerIndex = index;
       this._native?.setCollisionLayer(index);
+    }
+  }
+
+  /** Layers this Collider accepts even when the scene's layer table disables the pair. */
+  get includeLayers(): Layer {
+    return this._includeLayers;
+  }
+
+  set includeLayers(value: Layer) {
+    if (this._includeLayers !== value) {
+      this._includeLayers = value;
+      this._native?.setLayerOverrides(value, this._excludeLayers);
+    }
+  }
+
+  /** Layers this Collider rejects. Exclusions take precedence over inclusions. */
+  get excludeLayers(): Layer {
+    return this._excludeLayers;
+  }
+
+  set excludeLayers(value: Layer) {
+    if (this._excludeLayers !== value) {
+      this._excludeLayers = value;
+      this._native?.setLayerOverrides(this._includeLayers, value);
     }
   }
 
@@ -317,6 +343,34 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   /**
+   * Writes the world-space axis-aligned bounds of this attached collider shape.
+   * @returns Whether bounds were available. Leaves `out` unchanged when the shape is unavailable.
+   */
+  getBounds(out: BoundingBox): boolean {
+    this._registeredScene?.physics._syncColliders();
+    const shape = this._getAttachedShape();
+    if (!shape) return false;
+    shape.getWorldBounds(out.min, out.max);
+    return true;
+  }
+
+  /**
+   * Finds the shortest translation that separates this shape from another shape in the same scene.
+   * @param other - The other Collider. At least one shape must be a box, sphere, capsule, or convex mesh.
+   * @param outDirection - Receives the world-space unit direction to move this Collider.
+   * @returns The positive penetration depth, or 0 when the shapes do not overlap or cannot be tested.
+   * A return value of 0 leaves the output unchanged.
+   */
+  computePenetration(other: Collider, outDirection: Vector3): number {
+    const scene = this._registeredScene;
+    if (!scene || other === this || scene !== other._registeredScene) return 0;
+    scene.physics._syncColliders();
+    const shape = this._getAttachedShape();
+    const otherShape = other._getAttachedShape();
+    return shape && otherShape ? shape.computePenetration(otherShape, outDirection) : 0;
+  }
+
+  /**
    * Finds the closest point in this Collider's volume.
    * @param point - Point to measure from in world space.
    * @param outClosestPoint - Receives the closest point in world space. Left unchanged if the query fails.
@@ -339,13 +393,10 @@ export class Collider extends Component implements ICloneHook<Collider> {
    * @returns The distance, or -1 when the shape is unavailable
    */
   _getVolumeDistance(point: Vector3, outClosestPoint?: Vector3): number {
-    const body = this._attachedBody;
-    // A disabled Rigidbody is unregistered from the scene's enabled bodies but keeps its Colliders attached
-    if (!this._nativeActor || (body && body._index === -1)) {
-      return -1;
-    }
+    const shape = this._getAttachedShape();
+    if (!shape) return -1;
 
-    const res = (<IColliderShape>this._native).pointDistance(point);
+    const res = shape.pointDistance(point);
     const distance = res.w;
     if (distance < 0) {
       return -1;
@@ -418,7 +469,8 @@ export class Collider extends Component implements ICloneHook<Collider> {
     const depth = Collider._syncDepth++;
     try {
       const scratch = (Collider._syncScratch[depth] ||= new ColliderSyncScratch());
-      const scale = scratch.scale.set(Math.abs(lossyScale.x), Math.abs(lossyScale.y), Math.abs(lossyScale.z));
+      const scale = scratch.scale.copyFrom(lossyScale);
+      Vector3.multiply(this._center, scale, scratch.position);
       const previousShape = this._native;
       const shape = this._syncNativeShape(scale);
       if (!shape) {
@@ -464,6 +516,11 @@ export class Collider extends Component implements ICloneHook<Collider> {
       this._nativeActor = null;
       this._attachedBody = null;
     }
+  }
+
+  /** @internal */
+  _isRegisteredIn(scene: Scene): boolean {
+    return this._registeredScene === scene;
   }
 
   /**
@@ -528,6 +585,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
    * @returns The active native shape, or null when the current fields cannot produce one
    */
   protected _syncNativeShape(scale: Vector3): IColliderShape | null {
+    scale.set(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));
     const previous = <IColliderShape | null>this._native;
     if (previous && !this._geometryDirty && !this._scaleChanged(scale)) {
       return previous;
@@ -557,6 +615,9 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (this._isTrigger) shape.setIsTrigger(true);
     if (!this._isSceneQuery) shape.setIsSceneQuery(false);
     shape.setCollisionLayer(this._collisionLayerIndex);
+    if (this._includeLayers || this._excludeLayers) {
+      shape.setLayerOverrides(this._includeLayers, this._excludeLayers);
+    }
     return shape;
   }
 
@@ -578,18 +639,6 @@ export class Collider extends Component implements ICloneHook<Collider> {
     this._native = shape;
     previous?.destroy();
     return true;
-  }
-
-  /**
-   * Validate a contact offset assigned to {@link contactOffset}.
-   * @returns The value to store, negative values are clamped to 0
-   * @throws When the value is not finite.
-   */
-  protected _validateContactOffset(value: number): number {
-    if (!Number.isFinite(value)) {
-      throw new Error("Collider contactOffset must be finite.");
-    }
-    return Math.max(0, value);
   }
 
   protected _onContactOffsetChanged(value: number): void {
@@ -657,6 +706,11 @@ export class Collider extends Component implements ICloneHook<Collider> {
     return actor;
   }
 
+  private _getAttachedShape(): IColliderShape | null {
+    const body = this._attachedBody;
+    return this._nativeActor && (!body || body._index !== -1) ? (this._native as IColliderShape) : null;
+  }
+
   private _syncShapePose(
     shape: IColliderShape,
     body: Rigidbody | null,
@@ -664,7 +718,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
     force: boolean,
     scene: Scene
   ): boolean {
-    const { position, rotation, scale } = scratch;
+    const { position, rotation } = scratch;
     const euler = this._rotation;
     Quaternion.rotationYawPitchRoll(
       MathUtil.degreeToRadian(euler.y),
@@ -672,7 +726,6 @@ export class Collider extends Component implements ICloneHook<Collider> {
       MathUtil.degreeToRadian(euler.z),
       rotation
     );
-    Vector3.multiply(this._center, scale, position);
 
     if (body) {
       const entity = this.entity;

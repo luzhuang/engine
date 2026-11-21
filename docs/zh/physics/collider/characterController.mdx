@@ -46,7 +46,7 @@ label: Physics
 | ---- | ---- | ------ |
 | [**geometry**](/apis/core/#CharacterController-geometry) | `CharacterControllerGeometry.Capsule`（沿 `upDirection` 的胶囊体）或 `CharacterControllerGeometry.Box`（轴对齐的盒） | Capsule |
 | [**radius**](/apis/core/#CharacterController-radius) | 胶囊体在实体局部空间中的半径 | 0.5 |
-| [**height**](/apis/core/#CharacterController-height) | 胶囊总高度，包含两端半球 | 2 |
+| [**height**](/apis/core/#CharacterController-height) | 胶囊总高度，包含两端半球。缩放后的高度必须大于缩放后的直径。 | 2 |
 | [**size**](/apis/core/#CharacterController-size) | 盒在实体局部空间中的尺寸 | (1, 1, 1) |
 | [**center**](/apis/core/#Collider-center) | 几何形状在实体局部空间中的中心 | (0, 0, 0) |
 
@@ -63,7 +63,8 @@ label: Physics
 ### 特有属性
 | 属性 | 描述 | 默认值 |
 | ---- | ---- | ------ |
-| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。若超过控制器沿 `upDirection` 缩放后的高度，PhysX 将暂停该控制器的模拟和查询。有限负值会限制为 0。 | 0.5 |
+| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。PhysX 将实际跨越高度限制在控制器缩放后的高度以内，属性保留请求值。有限负值会限制为 0。 | 0.5 |
+| [**climbingMode**](/apis/core/#CharacterController-climbingMode) | 胶囊的跨台阶方式。`Easy` 允许胶囊依靠弧面跨上高于 `stepOffset` 的台阶，`Constrained` 限制这一行为。 | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | 角色可以行走的最大斜坡角度（度）。<ul><li>超过此角度的斜面将被视为不可行走的墙壁</li><li>影响角色的爬坡能力</li></ul> | 45° |
 | [**nonWalkableMode**](/apis/core/#CharacterController-nonWalkableMode) | 定义如何处理不可行走的表面。<ul><li>PreventClimbing：阻止角色攀爬不可行走的斜坡，但不会强制其他移动（默认）</li><li>PreventClimbingAndForceSliding：阻止角色攀爬不可行走的斜坡，并强制角色沿斜坡滑下</li></ul> | PreventClimbing |
 | [**upDirection**](/apis/core/#CharacterController-upDirection) | 定义角色的向上方向。默认为 (0, 1, 0)，即世界空间的 Y 轴向上。影响移动和碰撞检测的方向判定 | (0, 1, 0) |
@@ -72,7 +73,18 @@ label: Physics
 
 | 方法名 | 描述 |
 | ---- | ---- |
-| [**move**](/apis/core/#CharacterController-move) | 移动角色控制器，并立即把结果写入实体的世界坐标。返回一个碰撞标志值，标识碰撞状态；控制器不在场景中时返回 0。<ul><li>displacement：移动向量</li><li>minDist：最小移动距离</li><li>elapsedTime：经过的时间</li></ul> |
+| [**move**](/apis/core/#CharacterController-move) | 移动角色控制器，并立即把结果写入实体的世界坐标。返回一个碰撞标志值，标识碰撞状态；控制器不在场景中时返回 0。<ul><li>displacement：移动向量</li><li>minDist：结束扫掠的剩余距离，默认 0</li><li>elapsedTime：距上次移动的秒数，默认使用场景的固定步长</li></ul> |
+| [**getFootPosition(out)**](/apis/core/#CharacterController-getFootPosition) | 写出包含接触偏移的脚底世界坐标。 |
+| [**setFootPosition(position)**](/apis/core/#CharacterController-setFootPosition) | 瞬移控制器，让脚底到达指定的世界坐标。 |
+| [**resize(height)**](/apis/core/#CharacterController-resize) | 设置局部空间中的总高，保持脚底位置不动。调高前应先检查头顶空间。 |
+
+通过 `isGrounded` 或 `collisionFlags` 读取上次移动的接触状态，通过 `getVelocity(out)` 获取其实际世界速度。场景查询同帧可见新位置。
+
+在移动实体的脚本中实现 `onControllerColliderHit(hit)`，即可收到控制器扫掠产生的接触。回调在实体坐标写入后、`move` 返回前执行，一次移动可能产生多次回调。数据包括命中的碰撞体、世界坐标下的接触点和法线，以及本次扫掠区段的方向和长度。需要跨回调使用时请复制。
+
+实现推动逻辑时，可以用接触数据向 `hit.collider.attachedRigidbody` 施加力或冲量。站在移动平台上时，`move` 会随支撑点的平移和旋转更新位置，实体朝向保持不变。
+
+场景的 `physics.characterControllerOverlapRecovery` 默认为 `true`，让控制器在移动时尝试脱离与静态碰撞体的重叠。
 
 角色控制器不支持 `getClosestPoint`，调用时返回 -1。
 
@@ -110,21 +122,37 @@ controller.upDirection = new Vector3(0, 1, 0); // 设置向上方向
 ### 使用移动函数
 ```typescript
 class CharacterMovement extends Script {
-  private _velocity = new Vector3();
-  
-  onUpdate(deltaTime: number) {
-    const controller = this.entity.getComponent(CharacterController);
+  private _controller: CharacterController;
+  private readonly _displacement = new Vector3();
+  private _verticalSpeed = 0;
+  private _jumpRequested = false;
 
-    // 创建位移向量
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
+  onAwake() {
+    this._controller = this.entity.getComponent(CharacterController);
+  }
 
-    // 帧时长以秒传入。将最小移动距离设为 0，避免过滤小幅移动。
-    const collisionFlags = controller.move(displacement, 0, deltaTime);
-    
-    // 处理碰撞响应
-    if (collisionFlags & ControllerCollisionFlag.Down) {
-      // 角色接触地面
+  onUpdate() {
+    this._jumpRequested ||= this.engine.inputManager.isKeyDown(Keys.Space);
+  }
+
+  onPhysicsUpdate() {
+    const input = this.engine.inputManager;
+    const physics = this.scene.physics;
+    const dt = physics.fixedTimeStep;
+    const x = Number(input.isKeyHeldDown(Keys.KeyD)) - Number(input.isKeyHeldDown(Keys.KeyA));
+    const z = Number(input.isKeyHeldDown(Keys.KeyW)) - Number(input.isKeyHeldDown(Keys.KeyS));
+    const displacement = this._displacement.set(x, 0, z).normalize().scale(5 * dt);
+
+    if (this._jumpRequested && this._controller.isGrounded) {
+      this._verticalSpeed = 5;
+    }
+    this._jumpRequested = false;
+    this._verticalSpeed += physics.gravity.y * dt;
+    displacement.y = this._verticalSpeed * dt;
+
+    const contacts = this._controller.move(displacement);
+    if (contacts & (ControllerCollisionFlag.Down | ControllerCollisionFlag.Up)) {
+      this._verticalSpeed = 0;
     }
   }
 }

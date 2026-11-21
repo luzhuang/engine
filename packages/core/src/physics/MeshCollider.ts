@@ -20,6 +20,7 @@ export class MeshCollider extends Collider {
   @ignoreClone
   private _mesh: ModelMesh | null = null;
   private _convex = false;
+  private _doubleSided = false;
   private _cookingFlags = MeshColliderShapeCookingFlag.Cleaning | MeshColliderShapeCookingFlag.VertexWelding;
 
   @ignoreClone
@@ -69,6 +70,24 @@ export class MeshCollider extends Collider {
       this._convex = value;
       this._cookFailed = false;
       this._markDirty();
+    }
+  }
+
+  /**
+   * Whether scene queries can hit both sides of a triangle mesh.
+   * @defaultValue false
+   * @remarks Applies to scene queries against triangle meshes.
+   */
+  get doubleSided(): boolean {
+    return this._doubleSided;
+  }
+
+  set doubleSided(value: boolean) {
+    if (this._doubleSided !== value) {
+      this._doubleSided = value;
+      if (this._native && !this._nativeConvex) {
+        (<IMeshColliderShape>this._native).setDoubleSided(value, this._nativeScale);
+      }
     }
   }
 
@@ -130,9 +149,9 @@ export class MeshCollider extends Collider {
   private static _isValidScale(scale: Vector3): boolean {
     const minScale = Math.fround(1e-6);
     const maxScale = 1e6;
-    const x = Math.fround(scale.x);
-    const y = Math.fround(scale.y);
-    const z = Math.fround(scale.z);
+    const x = Math.abs(Math.fround(scale.x));
+    const y = Math.abs(Math.fround(scale.y));
+    const z = Math.abs(Math.fround(scale.z));
     return x >= minScale && y >= minScale && z >= minScale && x <= maxScale && y <= maxScale && z <= maxScale;
   }
 
@@ -187,8 +206,14 @@ export class MeshCollider extends Collider {
     }
 
     const previous = <IMeshColliderShape | null>this._native;
+    const oldScale = this._nativeScale;
+    const reflectionChanged =
+      this._convex &&
+      scaleChanged &&
+      (oldScale.x < 0 !== scale.x < 0 || oldScale.y < 0 !== scale.y < 0 || oldScale.z < 0 !== scale.z < 0);
     const needsCook =
       !previous ||
+      reflectionChanged ||
       this._nativeMesh !== mesh ||
       this._nativeConvex !== this._convex ||
       this._nativeCookingFlags !== this._cookingFlags;
@@ -257,7 +282,9 @@ export class MeshCollider extends Collider {
       flags,
       scale
     );
-    return replacement && this._replaceNativeShape(this._initializeNativeShape(replacement)) ? replacement : null;
+    if (!replacement) return null;
+    if (!convex && this._doubleSided) replacement.setDoubleSided(true, scale);
+    return this._replaceNativeShape(this._initializeNativeShape(replacement)) ? replacement : null;
   }
 
   private _setMesh(value: ModelMesh | null): void {

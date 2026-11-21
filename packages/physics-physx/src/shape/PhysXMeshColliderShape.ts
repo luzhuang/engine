@@ -11,6 +11,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
   private static readonly _tightBoundsFlag = 1; // eTIGHT_BOUNDS = 1 (1<<0)
 
   private _pxMesh: any = null;
+  private _doubleSided = false;
   private readonly _isConvex: boolean;
 
   constructor(
@@ -26,7 +27,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     super(physXPhysics);
     this._isConvex = isConvex;
 
-    const pxMesh = this._cookMesh(positions, indices, cookingFlags);
+    const pxMesh = this._cookMesh(positions, indices, cookingFlags, scale);
     if (!pxMesh) {
       return;
     }
@@ -56,7 +57,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     cookingFlags: number,
     scale: Vector3
   ): boolean {
-    const pxMesh = this._cookMesh(positions, indices, cookingFlags);
+    const pxMesh = this._cookMesh(positions, indices, cookingFlags, scale);
     if (!pxMesh) {
       return false;
     }
@@ -65,6 +66,12 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     this._pxMesh.release();
     this._pxMesh = pxMesh;
     return true;
+  }
+
+  /** {@inheritDoc IMeshColliderShape.setDoubleSided } */
+  setDoubleSided(value: boolean, scale: Vector3): void {
+    this._doubleSided = value;
+    this._updateGeometry(this._pxMesh, scale);
   }
 
   /**
@@ -85,7 +92,8 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
   private _cookMesh(
     positions: Vector3[],
     indices: Uint8Array | Uint16Array | Uint32Array | null,
-    cookingFlags: number
+    cookingFlags: number,
+    scale: Vector3
   ): any | null {
     const {
       _physX: physX,
@@ -105,7 +113,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     physX.setCookingMeshPreprocessParams(cookingParams, preprocessFlags);
     cooking.setParams(cookingParams);
 
-    const verticesPtr = this._allocatePositions(positions);
+    const verticesPtr = this._allocatePositions(positions, scale);
     if (!verticesPtr) return null;
     let pxMesh: any;
 
@@ -164,7 +172,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     }
   }
 
-  private _allocatePositions(positions: Vector3[]): number {
+  private _allocatePositions(positions: Vector3[], scale: Vector3): number {
     const physX = this._physXPhysics._physX;
     const length = positions.length;
     const ptr = physX._malloc(length * 3 * 4);
@@ -173,13 +181,17 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
       return 0;
     }
     const view = new Float32Array(physX.HEAPF32.buffer, ptr, length * 3);
+    // Convex meshes only accept positive geometry scales; apply reflections to their cook input.
+    const xSign = this._isConvex && scale.x < 0 ? -1 : 1;
+    const ySign = this._isConvex && scale.y < 0 ? -1 : 1;
+    const zSign = this._isConvex && scale.z < 0 ? -1 : 1;
     let i = 0;
     for (let offset = 0; i < length; i++, offset += 3) {
       const point = positions[i];
       if (!point) break;
-      const x = Math.fround(point.x);
-      const y = Math.fround(point.y);
-      const z = Math.fround(point.z);
+      const x = Math.fround(point.x * xSign);
+      const y = Math.fround(point.y * ySign);
+      const z = Math.fround(point.z * zSign);
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) break;
       view[offset] = x;
       view[offset + 1] = y;
@@ -204,11 +216,15 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
   private _createGeometry(pxMesh: any, scale: Vector3): any {
     const physX = this._physXPhysics._physX;
     const { x: scaleX, y: scaleY, z: scaleZ } = scale;
-    const meshFlag = this._isConvex ? PhysXMeshColliderShape._tightBoundsFlag : 0;
-
     return this._isConvex
-      ? physX.createConvexMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, meshFlag)
-      : physX.createTriMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, meshFlag);
+      ? physX.createConvexMeshGeometry(
+          pxMesh,
+          Math.abs(scaleX),
+          Math.abs(scaleY),
+          Math.abs(scaleZ),
+          PhysXMeshColliderShape._tightBoundsFlag
+        )
+      : physX.createTriMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, this._doubleSided ? 2 : 0);
   }
 
   private _updateGeometry(pxMesh: any, scale: Vector3): void {

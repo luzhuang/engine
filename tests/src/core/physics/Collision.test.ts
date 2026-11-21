@@ -244,4 +244,83 @@ describe("Collision", function () {
       engine.sceneManager.activeScene.physics._update(1);
     });
   });
+
+  it("reports the pre-solver relative velocity and impulses for both sides of compound contacts", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    physics.gravity = new Vector3();
+    const floor = addBox(new Vector3(10, 1, 10), null, new Vector3());
+    const compound = rootEntity.createChild();
+    compound.transform.position.y = 1.02;
+    const body = compound.addComponent(Rigidbody);
+    for (const x of [-1, 1]) {
+      const child = compound.createChild();
+      child.transform.position.x = x;
+      child.addComponent(BoxCollider);
+    }
+    body.linearVelocity = new Vector3(0, -4, 0);
+    const contact = new ContactPoint();
+    const contacts: ContactPoint[] = [];
+    let floorHits = 0;
+    let bodyHits = 0;
+    let bodyExits = 0;
+    floor.addComponent(
+      class extends Script {
+        override onCollisionEnter(collision: Collision): void {
+          expect(collision.rigidbody).toBe(body);
+          expect(collision.relativeVelocity!.y).toBeCloseTo(-4);
+          expect(collision.impulse.y).toBeLessThan(0);
+          floorHits++;
+        }
+      }
+    );
+    compound.addComponent(
+      class extends Script {
+        override onCollisionEnter(collision: Collision): void {
+          expect(collision.rigidbody).toBeNull();
+          expect(collision.relativeVelocity!.y).toBeCloseTo(4);
+          expect(collision.getContact(0, contact)).toBe(contact);
+          expect(collision.getContacts(contacts)).toBe(collision.contactCount);
+          expect(contact.position).toEqual(contacts[0].position);
+          let impulse = 0;
+          for (let i = 0; i < collision.contactCount; i++) impulse += contacts[i].impulse.y;
+          expect(collision.impulse.y).toBeCloseTo(impulse);
+          expect(() => collision.getContact(collision.contactCount, contact)).toThrow(RangeError);
+          bodyHits++;
+        }
+
+        override onCollisionExit(collision: Collision): void {
+          expect(collision.relativeVelocity).toBeNull();
+          bodyExits++;
+        }
+      }
+    );
+    physics._update(physics.fixedTimeStep);
+    expect(floorHits).toBe(2);
+    expect(bodyHits).toBe(2);
+    compound.transform.position.y = 4;
+    physics._update(physics.fixedTimeStep);
+    expect(bodyExits).toBe(2);
+  });
+
+  it("reports a swept impact without a pre-solver velocity sample", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    physics.gravity = new Vector3();
+    addBox(new Vector3(0.05, 2, 2), null, new Vector3());
+    const projectile = addBox(new Vector3(0.2, 0.2, 0.2), Rigidbody, new Vector3(-5, 0, 0));
+    const body = projectile.getComponent(Rigidbody);
+    body.useCCD = true;
+    body.linearVelocity = new Vector3(600, 0, 0);
+    let hits = 0;
+    projectile.addComponent(
+      class extends Script {
+        override onCollisionEnter(collision: Collision): void {
+          expect(collision.relativeVelocity).toBeNull();
+          expect(collision.impulse.x).toBeLessThan(0);
+          hits++;
+        }
+      }
+    );
+    physics._update(physics.fixedTimeStep);
+    expect(hits).toBe(1);
+  });
 });
