@@ -54,6 +54,16 @@ boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: num
 // Specify distance and get hit information
 boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// Filter at the default orientation
+boxCast(
+  center: Vector3,
+  halfExtents: Vector3,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // Full parameter version
 boxCast(
   center: Vector3, 
@@ -61,7 +71,7 @@ boxCast(
   direction: Vector3, 
   orientation: Quaternion, 
   distance: number, 
-  layerMask: Layer, 
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -146,7 +156,7 @@ sphereCast(
   radius: number, 
   direction: Vector3,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -187,6 +197,16 @@ capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3,
 // Specify distance and get collision information
 capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// Filter at the default orientation
+capsuleCast(
+  center: Vector3,
+  radius: number,\n  height: number,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // Full parameter version
 capsuleCast(
   center: Vector3,
@@ -195,7 +215,7 @@ capsuleCast(
   direction: Vector3,
   orientation: Quaternion,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -247,9 +267,9 @@ if (physicsScene.capsuleCast(
 ### Common Parameters
 
 - **center** - Center position of the shape (world coordinates)
-- **direction** - Casting direction (must be a unit vector)
+- **direction** - Finite nonzero casting direction. The scene normalizes it.
 - **distance** - Casting distance (defaults to `Number.MAX_VALUE`)
-- **layerMask** - Layer mask for filtering specific collider layers (defaults to `Layer.Everything`)
+- **layerMask** - A collision layer mask or a `PhysicsQueryFilter` (defaults to `Layer.Everything`)
 - **outHitResult** - Output hit result information (optional)
 
 ### Shape-Specific Parameters

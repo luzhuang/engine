@@ -146,10 +146,9 @@ class CharacterMovement extends Script {
     this._jumpRequested ||= this.engine.inputManager.isKeyDown(Keys.Space);
   }
 
-  onPhysicsUpdate() {
+  onPhysicsUpdate(dt: number) {
     const input = this.engine.inputManager;
     const physics = this.scene.physics;
-    const dt = physics.fixedTimeStep;
     const x = Number(input.isKeyHeldDown(Keys.KeyD)) - Number(input.isKeyHeldDown(Keys.KeyA));
     const z = Number(input.isKeyHeldDown(Keys.KeyW)) - Number(input.isKeyHeldDown(Keys.KeyS));
     const displacement = this._displacement.set(x, 0, z).normalize().scale(5 * dt);
@@ -161,7 +160,7 @@ class CharacterMovement extends Script {
     this._verticalSpeed += physics.gravity.y * dt;
     displacement.y = this._verticalSpeed * dt;
 
-    const contacts = this._controller.move(displacement);
+    const contacts = this._controller.move(displacement, 0, dt);
     if (contacts & (ControllerCollisionFlag.Down | ControllerCollisionFlag.Up)) {
       this._verticalSpeed = 0;
     }
@@ -214,65 +213,6 @@ controller.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSl
 // Adjust stepOffset to control climbable step height
 controller.stepOffset = 0.3; // Lower steps
 controller.stepOffset = 0.5; // Higher steps
-```
-
-### Gravity Handling
-
-The Character Controller itself doesn't include gravity handling; you need to implement gravity effects manually in scripts. Here's a complete gravity handling example:
-
-```typescript
-class CharacterMovement extends Script {
-  private _controller: CharacterController;
-  private _velocity = new Vector3();
-  private _isGrounded = false;
-  private _moveSpeed = 5;
-  private _jumpForce = 5;
-  private _gravity: Vector3;
-
-  onAwake() {
-    this._controller = this.entity.getComponent(CharacterController);
-    this._gravity = this.scene.physics.gravity;
-  }
-
-  onUpdate(deltaTime: number) {
-    const inputManager = this.engine.inputManager;
-
-    // Get input
-    const horizontal = inputManager.isKeyHeldDown(Keys.KeyA) ? -1 : inputManager.isKeyHeldDown(Keys.KeyD) ? 1 : 0;
-    const vertical = inputManager.isKeyHeldDown(Keys.KeyS) ? -1 : inputManager.isKeyHeldDown(Keys.KeyW) ? 1 : 0;
-    const jump = inputManager.isKeyDown(Keys.Space);
-
-    // Calculate movement direction
-    const moveDirection = new Vector3(horizontal, 0, vertical);
-    moveDirection.normalize();
-
-    // Apply movement speed
-    this._velocity.x = moveDirection.x * this._moveSpeed;
-    this._velocity.z = moveDirection.z * this._moveSpeed;
-
-    // Apply gravity
-    if (!this._isGrounded) {
-      this._velocity.y += this._gravity.y * deltaTime;
-    }
-
-    // Handle jumping
-    if (this._isGrounded && jump) {
-      this._velocity.y = this._jumpForce;
-      this._isGrounded = false;
-    }
-
-    // Execute movement
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
-    const collisionFlags = this._controller.move(displacement, 0, deltaTime);
-
-    // Update ground status
-    this._isGrounded = (collisionFlags & ControllerCollisionFlag.Down) !== 0;
-    if (this._isGrounded) {
-      this._velocity.y = 0;
-    }
-  }
-}
 ```
 
 ## Limitations and Considerations

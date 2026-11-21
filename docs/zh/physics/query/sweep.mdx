@@ -54,6 +54,16 @@ boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: num
 // 指定距离并获取命中信息
 boxCast(center: Vector3, halfExtents: Vector3, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// 使用默认朝向并过滤命中结果
+boxCast(
+  center: Vector3,
+  halfExtents: Vector3,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // 完整参数版本
 boxCast(
   center: Vector3, 
@@ -61,7 +71,7 @@ boxCast(
   direction: Vector3, 
   orientation: Quaternion, 
   distance: number, 
-  layerMask: Layer, 
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -146,7 +156,7 @@ sphereCast(
   radius: number, 
   direction: Vector3,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -185,6 +195,16 @@ capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3,
 // 指定距离并获取命中信息
 capsuleCast(center: Vector3, radius: number, height: number, direction: Vector3, distance: number, outHitResult: HitResult): boolean
 
+// 使用默认朝向并过滤命中结果
+capsuleCast(
+  center: Vector3,
+  radius: number,\n  height: number,
+  direction: Vector3,
+  distance: number,
+  layerMask: Layer | PhysicsQueryFilter,
+  outHitResult?: HitResult
+): boolean
+
 // 完整参数版本
 capsuleCast(
   center: Vector3,
@@ -193,7 +213,7 @@ capsuleCast(
   direction: Vector3,
   orientation: Quaternion,
   distance: number,
-  layerMask: Layer,
+  layerMask: Layer | PhysicsQueryFilter,
   outHitResult?: HitResult
 ): boolean
 ```
@@ -245,9 +265,9 @@ if (physicsScene.capsuleCast(
 ### 通用参数
 
 - **center** - 形状的中心位置（世界坐标）
-- **direction** - 投射方向（必须为单位向量）
+- **direction** - 非零且有限的投射方向，场景会归一化该向量
 - **distance** - 投射距离（默认为 `Number.MAX_VALUE`）
-- **layerMask** - 层遮罩，用于过滤特定层的碰撞器（默认为 `Layer.Everything`）
+- **layerMask** - 碰撞层掩码或 `PhysicsQueryFilter`（默认为 `Layer.Everything`）
 - **outHitResult** - 输出的命中结果信息（可选）
 
 ### 形状特定参数

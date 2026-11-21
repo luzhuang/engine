@@ -146,10 +146,9 @@ class CharacterMovement extends Script {
     this._jumpRequested ||= this.engine.inputManager.isKeyDown(Keys.Space);
   }
 
-  onPhysicsUpdate() {
+  onPhysicsUpdate(dt: number) {
     const input = this.engine.inputManager;
     const physics = this.scene.physics;
-    const dt = physics.fixedTimeStep;
     const x = Number(input.isKeyHeldDown(Keys.KeyD)) - Number(input.isKeyHeldDown(Keys.KeyA));
     const z = Number(input.isKeyHeldDown(Keys.KeyW)) - Number(input.isKeyHeldDown(Keys.KeyS));
     const displacement = this._displacement.set(x, 0, z).normalize().scale(5 * dt);
@@ -161,7 +160,7 @@ class CharacterMovement extends Script {
     this._verticalSpeed += physics.gravity.y * dt;
     displacement.y = this._verticalSpeed * dt;
 
-    const contacts = this._controller.move(displacement);
+    const contacts = this._controller.move(displacement, 0, dt);
     if (contacts & (ControllerCollisionFlag.Down | ControllerCollisionFlag.Up)) {
       this._verticalSpeed = 0;
     }
@@ -214,64 +213,6 @@ controller.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSl
 // 调整 stepOffset 来控制可跨越的台阶高度
 controller.stepOffset = 0.3; // 较低的台阶
 controller.stepOffset = 0.5; // 较高的台阶
-```
-
-### 重力处理
-
-角色控制器本身不包含重力处理，需要在脚本中手动实现重力效果。以下是一个完整的重力处理示例：
-
-```typescript
-class CharacterMovement extends Script {
-  private _controller: CharacterController;
-  private _velocity = new Vector3();
-  private _isGrounded = false;
-  private _moveSpeed = 5;
-  private _jumpForce = 5;
-  private _gravity: Vector3;
-
-  onAwake() {
-    this._controller = this.entity.getComponent(CharacterController);
-    this._gravity = this.scene.physics.gravity;
-  }
-
-  onUpdate(deltaTime: number) {
-    const inputManager = this.engine.inputManager;
-
-    // 获取输入
-    const horizontal = inputManager.isKeyHeldDown(Keys.KeyA) ? -1 : inputManager.isKeyHeldDown(Keys.KeyD) ? 1 : 0;
-    const vertical = inputManager.isKeyHeldDown(Keys.KeyS) ? -1 : inputManager.isKeyHeldDown(Keys.KeyW) ? 1 : 0;
-    const jump = inputManager.isKeyDown(Keys.Space);
-    // 计算移动方向
-    const moveDirection = new Vector3(horizontal, 0, vertical);
-    moveDirection.normalize();
-
-    // 应用移动速度
-    this._velocity.x = moveDirection.x * this._moveSpeed;
-    this._velocity.z = moveDirection.z * this._moveSpeed;
-
-    // 应用重力
-    if (!this._isGrounded) {
-      this._velocity.y += this._gravity.y * deltaTime;
-    }
-
-    // 处理跳跃
-    if (this._isGrounded && jump) {
-      this._velocity.y = this._jumpForce;
-      this._isGrounded = false;
-    }
-
-    // 执行移动
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
-    const collisionFlags = this._controller.move(displacement, 0, deltaTime);
-
-    // 更新地面状态
-    this._isGrounded = (collisionFlags & ControllerCollisionFlag.Down) !== 0;
-    if (this._isGrounded) {
-      this._velocity.y = 0;
-    }
-  }
-}
 ```
 
 ## 限制和注意事项
