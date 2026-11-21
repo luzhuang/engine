@@ -102,6 +102,9 @@ export interface IPhysicsScene {
   /** Returns borrowed interleaved world-space line vertices from the last step, or null for an empty sample. */
   getDebugLines(): Uint8Array | null;
 
+  /** Subtracts a world-space offset from native actors, queries, and character controllers. */
+  shiftOrigin(offset: Vector3): boolean;
+
   /**
    * Collect buffered physics events for the completed step.
    * @remarks Call once per step, after reading the new poses from physics.

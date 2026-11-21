@@ -38,6 +38,12 @@ export interface ControllerColliderHit {
   readonly moveLength: number;
 }
 
+const enum ControllerNativeState {
+  Detached,
+  Attached,
+  Rebased
+}
+
 /**
  * A capsule or box that moves and slides along obstacles through {@link move}.
  * @remarks The Entity's world scale sizes the shape, and {@link upDirection} orients it. The controller moves
@@ -76,7 +82,7 @@ export class CharacterController extends Collider {
   private _maxJumpHeight = 0;
 
   @ignoreClone
-  private _inScene = false;
+  private _nativeState = ControllerNativeState.Detached;
   @ignoreClone
   private _syncedCenter = new Vector3();
   @ignoreClone
@@ -456,6 +462,11 @@ export class CharacterController extends Collider {
       elapsedTime ??= scene.physics.fixedTimeStep;
       hits = this._borrowMoveHitBatch();
       displacement = CharacterController._movePositions.pop() ?? new Vector3();
+      if (this._nativeState === ControllerNativeState.Rebased) {
+        // The rebased hierarchy can recover precision lost in the old world frame.
+        controller.getWorldPosition(this._nativePosition);
+        this._nativeState = ControllerNativeState.Attached;
+      }
       const flags = controller.move(displacement.set(x, y, z), minDist, elapsedTime, hits, layerMask, excludedIds);
       this._collisionFlags = flags;
       this._writeBackPosition(controller, elapsedTime, displacement);
@@ -501,7 +512,7 @@ export class CharacterController extends Collider {
       Math.abs(lossyScale.y),
       Math.abs(lossyScale.z)
     );
-    const force = !this._inScene;
+    const force = this._nativeState === ControllerNativeState.Detached;
     const syncGeometry = force || this._geometryDirty || this._scaleChanged(scale);
     const box = this._geometry === CharacterControllerGeometry.Box;
     const dimensions = CharacterController._tempExtents;
@@ -554,7 +565,7 @@ export class CharacterController extends Collider {
     }
     if (force) {
       scene.physics._nativePhysicsScene.addCharacterController(controller);
-      this._inScene = true;
+      this._nativeState = ControllerNativeState.Attached;
     }
   }
 
@@ -562,13 +573,21 @@ export class CharacterController extends Collider {
    * @internal
    */
   override _detach(physicsScene?: PhysicsScene): void {
-    if (this._inScene) {
+    if (this._nativeState !== ControllerNativeState.Detached) {
       (physicsScene ?? this._registeredScene!.physics)._nativePhysicsScene.removeCharacterController(
         <ICharacterController>this._native
       );
-      this._inScene = false;
+      this._nativeState = ControllerNativeState.Detached;
       this._collisionFlags = ControllerCollisionFlag.None;
       this._velocity.set(0, 0, 0);
+    }
+  }
+
+  /** @internal */
+  override _adoptShiftedPose(): void {
+    if (this._nativeState !== ControllerNativeState.Detached) {
+      this._nativePosition.copyFrom(this.entity.transform.worldPosition);
+      this._nativeState = ControllerNativeState.Rebased;
     }
   }
 
@@ -595,7 +614,7 @@ export class CharacterController extends Collider {
 
   private _getSyncedNative(): ICharacterController | null {
     this._registeredScene?.physics._syncColliders();
-    return this._inScene ? <ICharacterController>this._native : null;
+    return this._nativeState === ControllerNativeState.Detached ? null : <ICharacterController>this._native;
   }
 
   private _borrowMoveHitBatch(): ControllerMoveHitBatch | undefined {

@@ -279,6 +279,45 @@ describe("Rigidbody interpolation", () => {
     expect(pressed).toBe(true);
   });
 
+  it("keeps the displayed camera and interpolated body aligned after an origin shift", () => {
+    document.body.append(canvas);
+    camera.entity.transform.position.x = 1000;
+    addBody(camera.entity, 0).interpolation = true;
+    const target = scene.createRootEntity();
+    target.transform.position.x = 1000;
+    addBox(target);
+    let pressed = false;
+    target.addComponent(
+      class extends Script {
+        onPointerDown(): void {
+          pressed = true;
+        }
+      }
+    );
+    const moving = scene.createRootEntity();
+    moving.transform.setPosition(997, 1.5, 0);
+    addBody(moving, 64).interpolation = true;
+    addBox(moving);
+    frame(2.5);
+    expect(red(998.5, 1.5)).toBeGreaterThan(240);
+
+    scene.physics.shiftOrigin(new Vector3(1000, 0, 0));
+    expect(scene.physics.interpolationFraction).toBeCloseTo(0.5);
+    const { left, top, width, height } = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        pointerId: 1,
+        clientX: left + width / 2,
+        clientY: top + height / 2,
+        buttons: 1
+      })
+    );
+    frame(0);
+    expect(pressed).toBe(true);
+    expect(red(-1.5, 1.5)).toBeGreaterThan(240);
+    expect(red(-1, 1.5)).toBeLessThan(10);
+  });
+
   it("keeps a distant body's pivot fixed while interpolating its rotation", () => {
     const x = 1e8;
     camera.entity.transform.position.x = x;
@@ -297,5 +336,23 @@ describe("Rigidbody interpolation", () => {
     frame(1.5);
     expect(entity.transform.worldRotationQuaternion.z).toBeCloseTo(Math.SQRT1_2);
     expect(screenRed(64, 64)).toBeGreaterThan(240);
+  });
+
+  it("does not invent interpolation motion when shifting recovers a child offset", () => {
+    const position = 2 ** 24;
+    camera.entity.transform.position.x = position;
+    const root = scene.createRootEntity();
+    root.transform.position.x = position;
+    const child = root.createChild();
+    child.transform.position.x = 0.25;
+    addBody(child, 0).interpolation = true;
+    addBox(child);
+    frame(1.5);
+    expect(child.transform.worldPosition.x).toBe(position);
+
+    scene.physics.shiftOrigin(new Vector3(position, 0, 0));
+    expect(child.transform.worldPosition.x).toBe(0.25);
+    frame(0);
+    expect(red(0.29)).toBeGreaterThan(240);
   });
 });

@@ -8,6 +8,7 @@ import {
   PhysicsSceneOptions
 } from "@galacean/engine-design";
 import { MathUtil, Ray, Vector3, Quaternion } from "@galacean/engine-math";
+import { Camera } from "../Camera";
 import { Engine } from "../Engine";
 import type { Entity } from "../Entity";
 import { Layer } from "../Layer";
@@ -19,9 +20,9 @@ import { Collision } from "./Collision";
 import { ContactModification } from "./ContactModification";
 import { HitResult } from "./HitResult";
 import { PhysicsDebugFlags, PhysicsDebugLines } from "./PhysicsDebugLines";
-import type { Joint } from "./joint/Joint";
 import { PhysicsMaterial } from "./PhysicsMaterial";
 import { Rigidbody } from "./Rigidbody";
+import { Joint } from "./joint/Joint";
 
 /** Filters one scene query. */
 export interface PhysicsQueryFilter {
@@ -160,6 +161,82 @@ export class PhysicsScene {
   getDebugLines(out: PhysicsDebugLines): void {
     Engine._assertOutsideContactModifier();
     out._copyFrom(this._nativePhysicsScene?.getDebugLines() ?? null);
+  }
+
+  /**
+   * Subtracts a world-space offset from the scene's physics and root translations.
+   * @param offset - The origin displacement in world units, rounded to Float32.
+   * @remarks Child local poses, body velocities, queued kinematic moves, and interpolated body motion are preserved.
+   * Call after the current physics step or controller move and its callbacks have finished. Use the
+   * shifted coordinates for subsequent world-space inputs. Existing world-space particles and trails,
+   * root position animation, and custom Transform providers require application coordination.
+   * @throws When the scene is unavailable or busy, or a component of the offset is not finite in Float32.
+   */
+  shiftOrigin(offset: Vector3): void {
+    Engine._assertOutsideContactModifier();
+    const scene = this._scene;
+    const nativeScene = this._nativePhysicsScene;
+    if (!nativeScene || this._stepping || scene._activeProcessCount > 0) {
+      throw new Error("Only an idle physics scene can shift its origin.");
+    }
+    const x = Math.fround(offset.x);
+    const y = Math.fround(offset.y);
+    const z = Math.fround(offset.z);
+    if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z))) {
+      throw new RangeError("Physics origin offset must be finite in Float32.");
+    }
+    if (!(x || y || z)) return;
+
+    const shift = new Vector3(x, y, z);
+    this._stepping = true;
+    try {
+      this._syncColliders();
+      if (scene.destroyed || !nativeScene.shiftOrigin(shift)) {
+        throw new Error("Only an idle physics scene can shift its origin.");
+      }
+      const entities = scene._rootEntities.slice();
+      const rootCount = entities.length;
+      const changes: number[] = [];
+      // All roots and descendant caches must be ready before a cross-entity listener runs.
+      for (let i = 0; i < entities.length; i++) {
+        const entity = entities[i];
+        const transform = entity.transform;
+        if (i < rootCount) transform._translateRootForOriginShift(shift);
+        changes.push(transform._markOriginShift());
+        const children = entity._children;
+        for (let j = 0; j < children.length; j++) entities.push(children[j]);
+      }
+
+      for (let i = 0; i < entities.length; i++) {
+        const components = entities[i]._components;
+        for (let j = 0; j < components.length; j++) {
+          const component = components[j];
+          if (component instanceof Rigidbody) {
+            if (component._index !== -1) component._adoptShiftedPose();
+          } else if (component instanceof Collider) {
+            if (component._isRegisteredIn(scene)) component._adoptShiftedPose();
+          } else if (component instanceof Joint) {
+            component._shiftWorldAnchor(shift);
+          } else if (component instanceof Camera) {
+            component._shiftWorldOrigin(shift);
+          }
+        }
+      }
+
+      let failure: [unknown] | undefined;
+      for (let i = 0; i < entities.length; i++) {
+        if (changes[i]) {
+          try {
+            entities[i]._updateFlagManager.dispatch(changes[i]);
+          } catch (error) {
+            failure ??= [error];
+          }
+        }
+      }
+      if (failure) throw failure[0];
+    } finally {
+      this._stepping = false;
+    }
   }
 
   /**

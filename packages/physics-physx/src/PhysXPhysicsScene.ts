@@ -267,6 +267,13 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     return this._pxScene.getDebugLines();
   }
 
+  /** {@inheritDoc IPhysicsScene.shiftOrigin } */
+  shiftOrigin(offset: Vector3): boolean {
+    if (!this._pxScene.shiftOrigin(offset)) return false;
+    this._pxControllerManager?.shiftOrigin(offset);
+    return true;
+  }
+
   /**
    * {@inheritDoc IPhysicsScene.updateEvents }
    */

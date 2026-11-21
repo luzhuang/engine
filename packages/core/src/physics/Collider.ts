@@ -496,6 +496,13 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (!this._material) this._native?.setMaterial(this._getNativeMaterial());
   }
 
+  /** @internal Adopts the shifted pose of the static actor already moved by the scene. */
+  _adoptShiftedPose(): void {
+    if (this._nativeActor && this._nativeActor === this._staticActor) {
+      this._nativeWorldPosition.copyFrom(this.entity.transform.worldPosition);
+    }
+  }
+
   /**
    * @internal
    * @inheritDoc

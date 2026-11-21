@@ -308,6 +308,13 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
     return !assignedCamera || !assignedCamera._phasedActiveInScene || assignedCamera === camera;
   }
 
+  /** @internal Converts the overlay's pixel origin to its current world frame. */
+  _getOverlayOffset(out: Vector3): Vector3 {
+    const position = this.entity.transform.worldPosition;
+    const { width, height } = this.engine.canvas;
+    return out.set(position.x - width * 0.5, position.y - height * 0.5, position.z);
+  }
+
   /**
    * @internal
    * The screen-space camera matrix is borrowed until the next matrix lookup.
@@ -337,6 +344,17 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
     const virtualCamera = context.virtualCamera;
     this._updateSortDistance(virtualCamera.isOrthographic, virtualCamera.position, virtualCamera.forward);
     const { width, height } = engine.canvas;
+    let left = 0;
+    let bottom = 0;
+    let right = width;
+    let top = height;
+    if (enableFrustumCulling && mode === CanvasRenderMode.ScreenSpaceOverlay) {
+      const origin = this._getOverlayOffset(UICanvas._tempVec3);
+      left = origin.x;
+      bottom = origin.y;
+      right += left;
+      top += bottom;
+    }
     const renderers = this._getRenderers();
     for (let i = 0, n = renderers.length; i < n; i++) {
       const renderer = renderers[i];
@@ -347,7 +365,7 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
         switch (mode) {
           case CanvasRenderMode.ScreenSpaceOverlay:
             const { min, max } = renderer.bounds;
-            if (min.x > width || max.x < 0 || min.y > height || max.y < 0) {
+            if (min.x > right || max.x < left || min.y > top || max.y < bottom) {
               continue;
             }
             break;

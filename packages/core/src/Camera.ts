@@ -783,6 +783,28 @@ export class Camera extends Component {
     return view?.active ? view : this;
   }
 
+  /** @internal Re-expresses cached and authored views in the shifted world frame. */
+  _shiftWorldOrigin(offset: Vector3): void {
+    if (this._isCustomViewMatrix) {
+      this._viewMatrix.translate(offset);
+      this._viewMatrixChange();
+    }
+    const view = this._presentedView;
+    if (!view?.active) return;
+    if (view.inverse) {
+      const elements = view.viewProjection.elements;
+      const { x, y, z } = offset;
+      for (let i = 0; i < 16; i += 4) {
+        const w = elements[i + 3];
+        elements[i] -= x * w;
+        elements[i + 1] -= y * w;
+        elements[i + 2] -= z * w;
+      }
+    } else {
+      view.viewProjection.translate(offset);
+    }
+  }
+
   /** @internal */
   _getRenderPosition(out: Vector3): Vector3 {
     const position = this._entity.transform.worldPosition;

@@ -53,10 +53,13 @@ export class UIPointerEventEmitter extends PointerEventEmitter {
       const componentsManager = scene._componentsManager;
       let canvasElements = componentsManager._overlayCanvases as DisorderedArray<UICanvas>;
       // Convert screen coordinates to overlay coordinates.
-      ray.origin.set(position.x, scene.engine.canvas.height - position.y, 1);
+      const overlayY = scene.engine.canvas.height - y;
       ray.direction.set(0, 0, -1);
       for (let j = canvasElements.length - 1; j >= 0; j--) {
-        if (canvasElements.get(j)._raycast(ray, hitResult, Number.MAX_SAFE_INTEGER, Layer.Everything)) {
+        const canvas = canvasElements.get(j);
+        const origin = canvas._getOverlayOffset(ray.origin);
+        origin.set(origin.x + x, origin.y + overlayY, origin.z + 1);
+        if (canvas._raycast(ray, hitResult, Number.MAX_SAFE_INTEGER, Layer.Everything)) {
           this._updateRaycast(hitResult.component, pointer);
           return;
         }

@@ -133,4 +133,19 @@ describe("UI physics interpolation", () => {
     press(64, 64);
     expect(onDown).toHaveBeenCalledOnce();
   });
+
+  it("draws and picks a nested overlay in the same pixels after shifting the scene", () => {
+    const scene = engine.sceneManager.activeScene;
+    const canvasEntity = scene.createRootEntity().createChild();
+    canvasEntity.addComponent(UICanvas).renderMode = CanvasRenderMode.ScreenSpaceOverlay;
+    const onDown = vi.fn();
+    addImage(canvasEntity, 20, onDown);
+    frame(0);
+    expect(red(64, 64)).toBeGreaterThan(240);
+
+    scene.physics.shiftOrigin(new Vector3(1000, 200, -1000));
+    press(64, 64);
+    expect(red(64, 64)).toBeGreaterThan(240);
+    expect(onDown).toHaveBeenCalledOnce();
+  });
 });

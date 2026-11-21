@@ -976,6 +976,23 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     if (this._renderPose) this._renderPose.hasSample = false;
   }
 
+  /** @internal Rebases the pose submitted to physics and the previous interpolation sample. */
+  _adoptShiftedPose(): void {
+    const current = this.entity.transform.worldPosition;
+    const submitted = this._nativePosition;
+    const pose = this._renderPose;
+    if (pose?.hasSample) {
+      const previous = pose.previousPosition;
+      previous.set(
+        current.x + (previous.x - submitted.x),
+        current.y + (previous.y - submitted.y),
+        current.z + (previous.z - submitted.z)
+      );
+      pose.fraction = -1;
+    }
+    submitted.copyFrom(current);
+  }
+
   /** @internal */
   _getRenderPose(
     fraction: number

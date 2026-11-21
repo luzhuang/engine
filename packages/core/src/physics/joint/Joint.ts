@@ -485,6 +485,24 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     }
   }
 
+  /** @internal Rebases a world anchor while preserving its authored and calculated values. */
+  _shiftWorldAnchor(offset: Vector3): void {
+    if (this._connectedBody) return;
+    const info = this._connectedBodyInfo;
+    const anchor = info.anchor;
+    anchor._onValueChanged = null;
+    anchor.subtract(offset);
+    anchor._onValueChanged = this._handleConnectedAnchorChanged;
+    this._calculatedConnectedAnchor?.subtract(offset);
+    if (this._nativeJoint) {
+      info.actualAnchor.subtract(offset);
+      // A query-only body retains its joint outside the solver, so the scene did not move it.
+      if (!this.entity.getComponent(Rigidbody)!.simulationEnabled) {
+        this._nativeJoint.setConnectedAnchor(info.actualAnchor);
+      }
+    }
+  }
+
   private static _wakeBody(body: Rigidbody | null | undefined): void {
     if (body && !body.destroyed && body._index !== -1 && !body.isKinematic) {
       body.wakeUp();

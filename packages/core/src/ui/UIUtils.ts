@@ -38,7 +38,7 @@ export class UIUtils {
     for (let i = 0, n = uiCanvases.length; i < n; i++) {
       const uiCanvas = uiCanvases.get(i);
       if (uiCanvas) {
-        const { position } = uiCanvas.entity.transform;
+        const { worldPosition: position } = uiCanvas.entity.transform;
         (viewE[12] = -position.x), (viewE[13] = -position.y);
         Matrix.multiply(virtualCamera.projectionMatrix, virtualCamera.viewMatrix, virtualCamera.viewProjectionMatrix);
         renderContext.applyVirtualCamera(virtualCamera, false);

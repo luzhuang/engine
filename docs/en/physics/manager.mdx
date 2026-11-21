@@ -68,6 +68,10 @@ scene.physics.gravity.set(0, 0, 0);
 scene.physics.gravity.set(0, -9.81, 0);
 ```
 
+## Shifting the Physics Origin
+
+Call `scene.physics.shiftOrigin(offset)` after physics steps and character controller moves, including their callbacks, have finished. It subtracts a world-space offset from the scene's root translations and PhysX state. Velocities, queued kinematic targets, and child local poses are preserved. Use the new coordinates for external world-space data and coordinate root animation, world-space particles, and trails separately.
+
 ## Spatial Query Functions
 
 The physics scene provides various spatial query functions for detecting and analyzing spatial relationships between objects in the scene:
