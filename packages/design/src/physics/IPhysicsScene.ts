@@ -96,6 +96,12 @@ export interface IPhysicsScene {
   /** Replaces the synchronous solver hook. Null disables contact modification. */
   setContactModifier(modifier: ((batch: IContactModification) => void) | null): void;
 
+  /** Sets native visualization flags and size. Returns false for invalid input or while stepping. */
+  setDebugVisualization(flags: number, scale: number): boolean;
+
+  /** Returns borrowed interleaved world-space line vertices from the last step, or null for an empty sample. */
+  getDebugLines(): Uint8Array | null;
+
   /**
    * Collect buffered physics events for the completed step.
    * @remarks Call once per step, after reading the new poses from physics.

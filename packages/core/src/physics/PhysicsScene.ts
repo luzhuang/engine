@@ -18,6 +18,7 @@ import { Collider } from "./Collider";
 import { Collision } from "./Collision";
 import { ContactModification } from "./ContactModification";
 import { HitResult } from "./HitResult";
+import { PhysicsDebugFlags, PhysicsDebugLines } from "./PhysicsDebugLines";
 import type { Joint } from "./joint/Joint";
 import { PhysicsMaterial } from "./PhysicsMaterial";
 import { Rigidbody } from "./Rigidbody";
@@ -136,6 +137,29 @@ export class PhysicsScene {
     if (!previous) nativeScene.setContactModifier((batch) => contacts._dispatch(batch));
     else if (!value) nativeScene.setContactModifier(null);
     contacts._modifier = value;
+  }
+
+  /**
+   * Selects the native debug lines to record on subsequent physics steps.
+   * @param flags - The {@link PhysicsDebugFlags} to combine. None disables recording and clears the last sample.
+   * @param scale - Size multiplier for debug markers. Defaults to one. Zero also disables recording.
+   * @throws When the scale is negative or non-finite, the flags are invalid, or the native scene is unavailable.
+   */
+  setDebugVisualization(flags: PhysicsDebugFlags, scale = 1): void {
+    Engine._assertOutsideContactModifier();
+    const nativeScene = this._nativePhysicsScene;
+    if (!nativeScene) throw new Error("Physics debug visualization requires a live physics scene.");
+    if (!nativeScene.setDebugVisualization(flags, scale)) throw new RangeError("Invalid physics debug flags or scale.");
+  }
+
+  /**
+   * Copies the native line sample from the last completed step into caller-owned storage.
+   * @remarks Shape lines use the poses at the start of that step. Contact lines represent ordinary contacts
+   * available at that time. This method never advances the simulation or publishes pending poses.
+   */
+  getDebugLines(out: PhysicsDebugLines): void {
+    Engine._assertOutsideContactModifier();
+    out._copyFrom(this._nativePhysicsScene?.getDebugLines() ?? null);
   }
 
   /**

@@ -10,7 +10,8 @@ enum ShapeFlag {
   /** The shape will partake in collision in the physical simulation. */
   SIMULATION_SHAPE = 1 << 0,
   /** The shape will partake in scene queries (ray casts, overlap tests, sweeps, ...). */
-  SCENE_QUERY_SHAPE = 1 << 1
+  SCENE_QUERY_SHAPE = 1 << 1,
+  VISUALIZATION = 1 << 3
 }
 
 /**
@@ -144,7 +145,9 @@ export abstract class PhysXColliderShape implements IColliderShape {
 
   protected _createShape(geometry: any, material: PhysXPhysicsMaterial): any {
     const { _physX: physX, _pxPhysics: physics } = this._physXPhysics;
-    const shapeFlags = new physX.PxShapeFlags(ShapeFlag.SCENE_QUERY_SHAPE | ShapeFlag.SIMULATION_SHAPE);
+    const shapeFlags = new physX.PxShapeFlags(
+      ShapeFlag.SCENE_QUERY_SHAPE | ShapeFlag.SIMULATION_SHAPE | ShapeFlag.VISUALIZATION
+    );
     const shape = physics.createShape(geometry, material._pxMaterial, true, shapeFlags);
     shapeFlags.delete();
     return shape;

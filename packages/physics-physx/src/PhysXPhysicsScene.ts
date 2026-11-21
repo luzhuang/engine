@@ -257,6 +257,16 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     this._pxContactModificationCallback = callback;
   }
 
+  /** {@inheritDoc IPhysicsScene.setDebugVisualization } */
+  setDebugVisualization(flags: number, scale: number): boolean {
+    return this._pxScene.setDebugVisualization(flags, scale);
+  }
+
+  /** {@inheritDoc IPhysicsScene.getDebugLines } */
+  getDebugLines(): Uint8Array | null {
+    return this._pxScene.getDebugLines();
+  }
+
   /**
    * {@inheritDoc IPhysicsScene.updateEvents }
    */

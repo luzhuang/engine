@@ -13,3 +13,19 @@ label: Physics
 const wireframe = rootEntity.addComponent(WireframeManager);
 wireframe.addCollideWireframe(collider);
 ```
+
+## 原生物理调试线
+
+原生调试线可显示 PhysX 记录的碰撞形状、包围盒、普通接触和关节坐标系。几何使用上一个已完成物理步开始时的位姿。
+
+```typescript
+import { PhysicsDebugFlags, PhysicsDebugLines } from "@galacean/engine";
+
+const lines = new PhysicsDebugLines();
+scene.physics.setDebugVisualization(PhysicsDebugFlags.Shapes | PhysicsDebugFlags.ContactNormals);
+
+// 物理步结束后读取
+scene.physics.getDebugLines(lines);
+```
+
+每次读取都可以复用 `lines`。有效长度为 `lines.lineCount * PhysicsDebugLines.bytesPerLine` 字节。每条线有两个端点，每个端点包含三个 Float32 坐标和一个 Uint32 ARGB 颜色，按小端顺序存储。若用类型化视图读取 `lines.data`，在数组扩容后更新视图。设为 `PhysicsDebugFlags.None` 即可停止记录并清除场景的上一份采样。

@@ -11,6 +11,7 @@ export { HeightFieldCollider } from "./HeightFieldCollider";
 export type { HeightFieldData } from "./HeightFieldCollider";
 export { HitResult } from "./HitResult";
 export { MeshCollider } from "./MeshCollider";
+export { PhysicsDebugFlags, PhysicsDebugLines } from "./PhysicsDebugLines";
 export { PhysicsMaterial } from "./PhysicsMaterial";
 export type { PhysicsQueryFilter } from "./PhysicsScene";
 export { PhysicsScene } from "./PhysicsScene";

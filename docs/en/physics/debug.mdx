@@ -13,3 +13,19 @@ It's very easy to use - just mount the `WireframeManager` script and set its ass
 const wireframe = rootEntity.addComponent(WireframeManager);
 wireframe.addCollideWireframe(collider);
 ```
+
+## Native physics debug lines
+
+Use native debug lines to inspect the shapes, bounds, ordinary contacts, and joint frames recorded by PhysX. These lines use the physics poses from the start of the last completed step.
+
+```typescript
+import { PhysicsDebugFlags, PhysicsDebugLines } from "@galacean/engine";
+
+const lines = new PhysicsDebugLines();
+scene.physics.setDebugVisualization(PhysicsDebugFlags.Shapes | PhysicsDebugFlags.ContactNormals);
+
+// After the physics step
+scene.physics.getDebugLines(lines);
+```
+
+Reuse `lines` for each read. Its valid bytes are `lines.lineCount * PhysicsDebugLines.bytesPerLine`. Each line has two vertices, each with three Float32 coordinates and one Uint32 ARGB color in little-endian order. If you create typed views over `lines.data`, update them when the array grows. Set `PhysicsDebugFlags.None` to stop recording and discard the scene's last sample.
