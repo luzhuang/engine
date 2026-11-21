@@ -38,6 +38,18 @@ export interface IPhysicsScene {
   /** Whether character controllers recover from overlaps with static colliders during movement. */
   characterControllerOverlapRecovery: boolean;
 
+  /** Whether character controllers use precise sweeps during movement. */
+  characterControllerPreciseSweeps: boolean;
+
+  /** Whether upward character-controller movement can slide along a sloped ceiling. */
+  characterControllerSlideOnCeiling: boolean;
+
+  /**
+   * Replaces pending overlap corrections for character controllers in this scene.
+   * @param elapsedTime - Seconds since the last computation. Zero clears pending corrections.
+   */
+  computeCharacterControllerInteractions(elapsedTime: number): void;
+
   /**
    * Set gravity.
    * @param gravity - Physics gravity

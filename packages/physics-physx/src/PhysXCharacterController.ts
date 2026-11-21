@@ -35,7 +35,9 @@ export class PhysXCharacterController implements ICharacterController {
   private _climbingMode = ControllerClimbingMode.Constrained;
   private _nonWalkableMode = 0;
   private _upDirection = new Vector3(0, 1, 0);
-  private _slopeLimit = 45;
+  private _slopeLimit = Math.SQRT1_2;
+  private _invisibleWallHeight = 0;
+  private _maxJumpHeight = 0;
 
   constructor(physXPhysics: PhysXPhysics, uniqueID: number, material: PhysXPhysicsMaterial) {
     this._physXPhysics = physXPhysics;
@@ -270,8 +272,15 @@ export class PhysXCharacterController implements ICharacterController {
    * {@inheritDoc ICharacterController.setSlopeLimit }
    */
   setSlopeLimit(slopeLimit: number): void {
-    this._slopeLimit = slopeLimit;
-    this._pxController?.setSlopeLimit(Math.cos((slopeLimit * Math.PI) / 180));
+    this._slopeLimit = Math.sin(((90 - slopeLimit) * Math.PI) / 180);
+    this._pxController?.setSlopeLimit(this._slopeLimit);
+  }
+
+  /** {@inheritDoc ICharacterController.setSlopeWalls } */
+  setSlopeWalls(wallHeight: number, maxJumpHeight: number): void {
+    this._invisibleWallHeight = wallHeight;
+    this._maxJumpHeight = maxJumpHeight;
+    this._pxController?.setSlopeWalls(wallHeight, maxJumpHeight);
   }
 
   /**
@@ -341,7 +350,9 @@ export class PhysXCharacterController implements ICharacterController {
     desc.setMaterial(this._pxMaterial);
     desc.contactOffset = this._contactOffset;
     desc.stepOffset = this._stepOffset;
-    desc.slopeLimit = Math.cos((this._slopeLimit * Math.PI) / 180);
+    desc.slopeLimit = this._slopeLimit;
+    desc.invisibleWallHeight = this._invisibleWallHeight;
+    desc.maxJumpHeight = this._maxJumpHeight;
     desc.setNonWalkableMode(this._nonWalkableMode);
     const pxController = scene._getControllerManager().createController(desc);
     desc.delete();

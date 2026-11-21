@@ -67,8 +67,16 @@ label: Physics
 | [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。PhysX 将实际跨越高度限制在控制器缩放后的高度以内，属性保留请求值。有限负值会限制为 0。 | 0.5 |
 | [**climbingMode**](/apis/core/#CharacterController-climbingMode) | 胶囊的跨台阶方式。`Easy` 允许胶囊依靠弧面跨上高于 `stepOffset` 的台阶，`Constrained` 限制这一行为。 | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | 角色可以行走的最大斜坡角度（度）。<ul><li>超过此角度的斜面将被视为不可行走的墙壁</li><li>影响角色的爬坡能力</li></ul> | 45° |
+| [**invisibleWallHeight**](/apis/core/#CharacterController-invisibleWallHeight) | 不可行走的网格和地形三角形周围的隐形墙高度，使用世界单位。0 表示关闭隐形墙。 | 0 |
+| [**maxJumpHeight**](/apis/core/#CharacterController-maxJumpHeight) | 启用隐形墙时沿角色上方向的反向扩展的搜索距离，使用世界单位。可设为足以覆盖角色跳跃高度的距离。 | 0 |
 | [**nonWalkableMode**](/apis/core/#CharacterController-nonWalkableMode) | 定义如何处理不可行走的表面。<ul><li>PreventClimbing：阻止角色攀爬不可行走的斜坡，但不会强制其他移动（默认）</li><li>PreventClimbingAndForceSliding：阻止角色攀爬不可行走的斜坡，并强制角色沿斜坡滑下</li></ul> | PreventClimbing |
 | [**upDirection**](/apis/core/#CharacterController-upDirection) | 定义角色的向上方向。默认为 (0, 1, 0)，即世界空间的 Y 轴向上。影响移动和碰撞检测的方向判定 | (0, 1, 0) |
+
+## 场景移动设置
+
+`scene.physics.characterControllerPreciseSweeps` 默认开启精确扫掠。将 `scene.physics.characterControllerSlideOnCeiling` 设为 `false`，向上跳到倾斜天花板时会停止沿斜面滑移。
+
+移动彼此重叠的控制器前，调用一次 `scene.physics.computeCharacterControllerInteractions()`。该方法按场景碰撞规则计算分离量，各控制器在下一次 `move()` 时应用各自的分离量。
 
 ## 公开方法
 

@@ -175,6 +175,46 @@ export class PhysicsScene {
   }
 
   /**
+   * Whether character controllers use precise sweeps during movement.
+   * @defaultValue true
+   */
+  get characterControllerPreciseSweeps(): boolean {
+    return this._nativePhysicsScene.characterControllerPreciseSweeps;
+  }
+
+  set characterControllerPreciseSweeps(value: boolean) {
+    this._nativePhysicsScene.characterControllerPreciseSweeps = value;
+  }
+
+  /**
+   * Whether upward character-controller movement can slide along a sloped ceiling.
+   * @defaultValue true
+   */
+  get characterControllerSlideOnCeiling(): boolean {
+    return this._nativePhysicsScene.characterControllerSlideOnCeiling;
+  }
+
+  set characterControllerSlideOnCeiling(value: boolean) {
+    this._nativePhysicsScene.characterControllerSlideOnCeiling = value;
+  }
+
+  /**
+   * Computes separation for overlapping character controllers that can collide with each other.
+   * @remarks Call once before moving the controllers. Each controller applies the result on its next
+   * `move()`. Calling again replaces any pending separation using the current poses and collision rules.
+   * Move-specific filters apply to the sweep.
+   * @param elapsedTime - Seconds since the last computation. Defaults to the fixed timestep. Zero clears pending separation.
+   * @throws When elapsedTime is negative or non-finite in Float32.
+   */
+  computeCharacterControllerInteractions(elapsedTime = this._fixedTimeStep): void {
+    if (!(typeof elapsedTime === "number" && elapsedTime >= 0 && Number.isFinite(Math.fround(elapsedTime)))) {
+      throw new RangeError("Character controller interaction time must be nonnegative and finite.");
+    }
+    this._syncColliders();
+    this._nativePhysicsScene?.computeCharacterControllerInteractions(elapsedTime);
+  }
+
+  /**
    * The fixed time step in seconds at which physics are performed.
    * @throws When the value is not a positive finite Float32.
    */

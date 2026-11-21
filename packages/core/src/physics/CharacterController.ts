@@ -53,6 +53,12 @@ export class CharacterController extends Collider {
   private static _tempWorldScale = new Vector3();
   private static _tempExtents = new Vector3();
 
+  private static _validateSlopeWallDistance(value: number, property: string): void {
+    if (typeof value !== "number" || !(value >= 0 && Number.isFinite(Math.fround(value)))) {
+      throw new RangeError(`CharacterController ${property} must be a nonnegative finite Float32.`);
+    }
+  }
+
   private _geometry = CharacterControllerGeometry.Capsule;
   private _radius = 0.5;
   private _height = 2;
@@ -66,6 +72,8 @@ export class CharacterController extends Collider {
   @ignoreClone
   private _lastValidUpDirection?: Vector3;
   private _slopeLimit = 45;
+  private _invisibleWallHeight = 0;
+  private _maxJumpHeight = 0;
 
   @ignoreClone
   private _inScene = false;
@@ -280,6 +288,42 @@ export class CharacterController extends Collider {
     if (this._slopeLimit !== value) {
       this._slopeLimit = value;
       (<ICharacterController>this._native)?.setSlopeLimit(value);
+    }
+  }
+
+  /**
+   * The height of invisible walls around non-walkable mesh and heightfield triangles, in world units.
+   * @defaultValue 0
+   * @remarks A height of zero disables wall generation.
+   * @throws When the value is negative or non-finite as a Float32.
+   */
+  get invisibleWallHeight(): number {
+    return this._invisibleWallHeight;
+  }
+
+  set invisibleWallHeight(value: number) {
+    CharacterController._validateSlopeWallDistance(value, "invisibleWallHeight");
+    if (this._invisibleWallHeight !== value) {
+      this._invisibleWallHeight = value;
+      (<ICharacterController>this._native)?.setSlopeWalls(value, this._maxJumpHeight);
+    }
+  }
+
+  /**
+   * The extra downward search distance for non-walkable triangles while jumping, in world units.
+   * @defaultValue 0
+   * @remarks Extends the sweep search along the direction opposite {@link upDirection} when {@link invisibleWallHeight} is positive.
+   * @throws When the value is negative or non-finite as a Float32.
+   */
+  get maxJumpHeight(): number {
+    return this._maxJumpHeight;
+  }
+
+  set maxJumpHeight(value: number) {
+    CharacterController._validateSlopeWallDistance(value, "maxJumpHeight");
+    if (this._maxJumpHeight !== value) {
+      this._maxJumpHeight = value;
+      (<ICharacterController>this._native)?.setSlopeWalls(this._invisibleWallHeight, value);
     }
   }
 
@@ -527,6 +571,9 @@ export class CharacterController extends Collider {
     controller.setNonWalkableMode(this._nonWalkableMode);
     controller.setUpDirection(this._upDirection);
     controller.setSlopeLimit(this._slopeLimit);
+    if (this._invisibleWallHeight || this._maxJumpHeight) {
+      controller.setSlopeWalls(this._invisibleWallHeight, this._maxJumpHeight);
+    }
     return controller;
   }
 

@@ -10,6 +10,8 @@ import {
   Entity,
   HitResult,
   Layer,
+  MeshCollider,
+  ModelMesh,
   PhysicsScene,
   PlaneCollider,
   Rigidbody,
@@ -106,6 +108,8 @@ describe("CharacterController", () => {
     expect(capsule.upDirection.y).toBe(1);
     expect(capsule.upDirection.z).toBe(0);
     expect(capsule.slopeLimit).toBe(45);
+    expect(capsule.invisibleWallHeight).toBe(0);
+    expect(capsule.maxJumpHeight).toBe(0);
   });
 
   it.each([CharacterControllerGeometry.Box, CharacterControllerGeometry.Capsule])(
@@ -141,6 +145,57 @@ describe("CharacterController", () => {
       expect([foot.x, foot.y, foot.z]).toEqual([3, 5, 0]);
     }
   );
+
+  it("applies the ceiling slide setting before controller creation and during movement", () => {
+    const scene = new Scene(engine);
+    try {
+      engine.sceneManager.addScene(scene);
+      expect(scene.physics.characterControllerSlideOnCeiling).toBe(true);
+      scene.physics.characterControllerSlideOnCeiling = false;
+      const ceiling = scene.createRootEntity("Sloped ceiling");
+      ceiling.transform.setPosition(0, 6, 0);
+      ceiling.transform.setRotation(0, 0, 135);
+      ceiling.addComponent(PlaneCollider);
+
+      const character = scene.createRootEntity("Character");
+      character.transform.setPosition(0, 3, 0);
+      const actor = character.addComponent(CharacterController);
+      actor.stepOffset = 0;
+      const jump = new Vector3(0, 5, 0);
+      expect(actor.move(jump) & ControllerCollisionFlag.Up).toBe(ControllerCollisionFlag.Up);
+      expect(character.transform.worldPosition.x).toBeCloseTo(0, 4);
+
+      character.transform.setPosition(0, 3, 0);
+      scene.physics.characterControllerSlideOnCeiling = true;
+      expect(actor.move(jump) & ControllerCollisionFlag.Up).toBe(ControllerCollisionFlag.Up);
+      expect(Math.abs(character.transform.worldPosition.x)).toBeGreaterThan(0.5);
+    } finally {
+      scene.destroy();
+    }
+  });
+
+  it("selects the precise box sweep when the scene setting changes", () => {
+    const obstacle = addBox(new Vector3(1, 1.7, 1.2), new Vector3(1, 3, 0));
+    obstacle.entity.transform.setRotation(0, 0, 30);
+    controller.stepOffset = 0;
+    controller.contactOffset = 0.1;
+    controller.slopeLimit = 90;
+    const displacement = new Vector3(7, 0, 0);
+
+    expect(physics.characterControllerPreciseSweeps).toBe(true);
+    try {
+      role.transform.setPosition(-3, 4, 1);
+      expect(move(displacement) & ControllerCollisionFlag.Sides).toBe(ControllerCollisionFlag.Sides);
+      expect(role.transform.position.x).toBeLessThan(0);
+
+      physics.characterControllerPreciseSweeps = false;
+      role.transform.setPosition(-3, 4, 1);
+      expect(move(displacement) & ControllerCollisionFlag.Sides).toBe(ControllerCollisionFlag.Sides);
+      expect(role.transform.position.x).toBeGreaterThan(2);
+    } finally {
+      physics.characterControllerPreciseSweeps = true;
+    }
+  });
 
   it("applies the scene overlap recovery setting to character movement", () => {
     controller.geometry = CharacterControllerGeometry.Capsule;
@@ -774,6 +829,45 @@ describe("CharacterController", () => {
     walkTo(new Vector3(0, 0, 3), 50);
     if (limit === 45) expect(role.transform.position.z).toBeCloseTo(3, 5);
     else expect(role.transform.position.z).toBeLessThan(2);
+  });
+
+  it.each([1, 0])("refreshes live invisible walls and retains jump search after rebuilding (run=%s)", (run) => {
+    const mesh = new ModelMesh(engine);
+    mesh.setPositions([new Vector3(0, 0, -3), new Vector3(0, 0, 3), new Vector3(run, 2, 3), new Vector3(run, 2, -3)]);
+    mesh.setIndices(new Uint16Array([0, 1, 2, 0, 2, 3]));
+    root.createChild().addComponent(MeshCollider).mesh = mesh;
+    controller.stepOffset = 0;
+
+    const displacement = new Vector3(5, 0, 0);
+    const crossSlope = (): number => {
+      role.transform.setPosition(-2, 5, 0);
+      return move(displacement) & ControllerCollisionFlag.Sides;
+    };
+
+    controller.maxJumpHeight = 6;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.None);
+    expect(role.transform.position.x).toBeCloseTo(3, 4);
+
+    controller.invisibleWallHeight = 8;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.Sides);
+    expect(role.transform.position.x).toBeLessThan(0);
+
+    controller.maxJumpHeight = 0;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.None);
+
+    controller.maxJumpHeight = 6;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.Sides);
+    controller.slopeLimit = run === 0 ? 90 : 80;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.None);
+
+    controller.slopeLimit = 45;
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    expect(crossSlope()).toBe(ControllerCollisionFlag.Sides);
+  });
+
+  it("rejects invalid invisible wall and jump heights", () => {
+    expect(() => (controller.invisibleWallHeight = -1)).toThrow(RangeError);
+    expect(() => (controller.maxJumpHeight = Number.MAX_VALUE)).toThrow(RangeError);
   });
 
   it.each([0.5, 1])("uses stepOffset %s to control stepping over an obstacle", (offset) => {
@@ -1466,6 +1560,145 @@ describe("CharacterController", () => {
       } finally {
         entity.destroy();
       }
+    });
+  });
+
+  describe("controller pair separation", () => {
+    function createOverlappingPair(): CharacterController {
+      controller.geometry = CharacterControllerGeometry.Capsule;
+      role.transform.setPosition(0, 5, 0);
+      const other = root.createChild("overlapping character").addComponent(CharacterController);
+      other.entity.transform.setPosition(0.75, 5, 0);
+      return other;
+    }
+
+    it("replaces pending separation and consumes it on the next move", () => {
+      const other = createOverlappingPair();
+      const otherPosition = other.entity.transform.position;
+      const elapsedTime = 1 / 60;
+      const zero = new Vector3();
+
+      physics.computeCharacterControllerInteractions(elapsedTime);
+      physics.computeCharacterControllerInteractions(elapsedTime);
+      expect(role.transform.position.x).toBe(0);
+      expect(otherPosition.x).toBe(0.75);
+
+      const separation = 1 / 30;
+      controller.move(zero);
+      other.move(zero);
+      expect(role.transform.position.x).toBeCloseTo(-separation, 5);
+      expect(otherPosition.x).toBeCloseTo(0.75 + separation, 5);
+      controller.move(zero);
+      other.move(zero);
+      expect(role.transform.position.x).toBeCloseTo(-separation, 5);
+      expect(otherPosition.x).toBeCloseTo(0.75 + separation, 5);
+
+      role.transform.position.x = 0;
+      otherPosition.x = 0.75;
+      physics.computeCharacterControllerInteractions(elapsedTime);
+      physics.computeCharacterControllerInteractions(0);
+      controller.move(zero);
+      other.move(zero);
+      expect(role.transform.position.x).toBe(0);
+      expect(otherPosition.x).toBe(0.75);
+
+      physics.computeCharacterControllerInteractions(elapsedTime);
+      other.entity.destroy();
+      physics.computeCharacterControllerInteractions(elapsedTime);
+      controller.move(zero);
+      expect(role.transform.position.x).toBe(0);
+    });
+
+    it("uses persistent layer and pair rules and requires two solid proxies", () => {
+      const other = createOverlappingPair();
+      controller.collisionLayer = Layer.Layer1;
+      other.collisionLayer = Layer.Layer2;
+      const previous = physics.getColliderLayerCollision(Layer.Layer1, Layer.Layer2);
+      const zero = new Vector3();
+
+      function movePair(): void {
+        physics.computeCharacterControllerInteractions();
+        controller.move(zero);
+        other.move(zero);
+      }
+
+      try {
+        physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, false);
+        movePair();
+        expect(role.transform.position.x).toBe(0);
+
+        controller.includeLayers = Layer.Layer2;
+        physics.setColliderPairIgnored(controller, other);
+        movePair();
+        expect(role.transform.position.x).toBe(0);
+
+        physics.setColliderPairIgnored(controller, other, false);
+        other.detectCollisions = false;
+        movePair();
+        expect(role.transform.position.x).toBe(0);
+        expect(other.entity.transform.position.x).toBe(0.75);
+
+        other.detectCollisions = true;
+        movePair();
+        expect(role.transform.position.x).toBeLessThan(0);
+        expect(other.entity.transform.position.x).toBeGreaterThan(0.75);
+      } finally {
+        physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, previous);
+      }
+    });
+
+    it.each([
+      ["x", new Vector3(1.2, 5.25, 0), "y"],
+      ["y", new Vector3(0, 6.4, 0.25), "z"]
+    ] as const)(
+      "separates mixed shapes in the movement plane when the penetration normal points along %s",
+      (up, position, tangent) => {
+        const other = root.createChild("Offset capsule").addComponent(CharacterController);
+        const start = new Vector3(0, 5, 0);
+        role.transform.setPosition(start.x, start.y, start.z);
+        other.entity.transform.setPosition(position.x, position.y, position.z);
+        if (up === "x") {
+          controller.upDirection.set(1, 0, 0);
+          other.upDirection.set(1, 0, 0);
+        }
+
+        physics.computeCharacterControllerInteractions();
+        const zero = new Vector3();
+        controller.move(zero, 0, undefined, { exclude: [other] });
+        other.move(zero, 0, undefined, { exclude: [controller] });
+
+        expect(role.transform.position[up]).toBeCloseTo(start[up], 5);
+        expect(other.entity.transform.position[up]).toBeCloseTo(position[up], 5);
+        expect(role.transform.position[tangent]).toBeLessThan(start[tangent]);
+        expect(other.entity.transform.position[tangent]).toBeGreaterThan(position[tangent]);
+      }
+    );
+
+    it.each([
+      ["capsules with X up", CharacterControllerGeometry.Capsule, new Vector3(1, 0, 0), 1.4, 5, 1],
+      ["tall boxes", CharacterControllerGeometry.Box, new Vector3(0, 1, 0), 0, 6.4, 4],
+      ["boxes with near-opposite X up", CharacterControllerGeometry.Box, new Vector3(-1, 3e-23, 0), 1, 5, 2]
+    ] as const)("separates %s before the first move", (_case, geometry, up, otherX, otherY, sizeY) => {
+      const other = root.createChild("offset character").addComponent(CharacterController);
+      controller.geometry = other.geometry = geometry;
+      role.transform.setPosition(0, 5, 0);
+      const otherTransform = other.entity.transform;
+      otherTransform.setPosition(otherX, otherY, 0.75);
+      for (const character of [controller, other]) {
+        character.upDirection = up;
+        if (geometry === CharacterControllerGeometry.Box) character.size.set(1, sizeY, 1);
+      }
+
+      physics.computeCharacterControllerInteractions();
+      const zero = new Vector3();
+      controller.move(zero, 0, undefined, { exclude: [other] });
+      other.move(zero, 0, undefined, { exclude: [controller] });
+      expect(role.transform.position.x).toBeCloseTo(0, 5);
+      expect(role.transform.position.y).toBeCloseTo(5, 5);
+      expect(otherTransform.position.x).toBeCloseTo(otherX, 5);
+      expect(otherTransform.position.y).toBeCloseTo(otherY, 5);
+      expect(role.transform.position.z).toBeLessThan(0);
+      expect(otherTransform.position.z).toBeGreaterThan(0.75);
     });
   });
 });

@@ -145,6 +145,13 @@ export interface ICharacterController {
   setSlopeLimit(slopeLimit: number): void;
 
   /**
+   * Sets wall height and downward search distance for non-walkable triangles.
+   * @param wallHeight - Wall height in world units. Zero disables walls.
+   * @param maxJumpHeight - Extra downward search distance in world units when walls are enabled.
+   */
+  setSlopeWalls(wallHeight: number, maxJumpHeight: number): void;
+
+  /**
    * Release the controller.
    */
   destroy(): void;
