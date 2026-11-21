@@ -211,6 +211,25 @@ export interface IPhysicsScene {
     all?: boolean
   ): boolean;
 
+  /** Tests whether a box overlaps a shape that matches the query filter. */
+  checkBox(center: Vector3, orientation: Quaternion, halfExtents: Vector3, filter: IPhysicsQueryFilter): boolean;
+
+  /** Tests whether a sphere overlaps a shape that matches the query filter. */
+  checkSphere(center: Vector3, radius: number, filter: IPhysicsQueryFilter): boolean;
+
+  /**
+   * Tests whether a capsule overlaps a shape that matches the query filter.
+   * @param height - The height between the capsule's hemisphere centers.
+   * @param orientation - World-space rotation of the capsule, whose local long axis is Y.
+   */
+  checkCapsule(
+    center: Vector3,
+    radius: number,
+    height: number,
+    orientation: Quaternion,
+    filter: IPhysicsQueryFilter
+  ): boolean;
+
   /**
    * Finds query shapes overlapping a box, in unspecified order.
    * @param center - The world-space box center

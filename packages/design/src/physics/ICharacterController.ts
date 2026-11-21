@@ -63,6 +63,9 @@ export interface ICharacterController {
    */
   setIsSceneQuery(value: boolean): void;
 
+  /** Sets whether other bodies can collide with the controller and triggers can detect it. */
+  setDetectCollisions(value: boolean): void;
+
   /**
    * Moves the character using a "collide-and-slide" algorithm.
    * @param disp - World-space displacement

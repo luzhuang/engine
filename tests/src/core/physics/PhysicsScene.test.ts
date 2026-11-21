@@ -17,6 +17,7 @@ import {
   Transform,
   CharacterControllerGeometry
 } from "@galacean/engine-core";
+import type { PhysicsQueryFilter } from "@galacean/engine-core";
 import { Ray, Vector3, Quaternion } from "@galacean/engine-math";
 import type { IPhysicsQueryFilter, IPhysicsScene } from "@galacean/engine-design";
 import { WebGLEngine } from "@galacean/engine";
@@ -317,6 +318,40 @@ describe("Physics Test", () => {
       } finally {
         root.destroy();
       }
+    });
+
+    it("checks an overlap only when at least one collider passes the query filters", () => {
+      const root = enginePhysX.sceneManager.activeScene.createRootEntity();
+      root.addComponent(BoxCollider).collisionLayer = Layer.Layer2;
+      const sensor = root.addComponent(BoxCollider);
+      sensor.collisionLayer = Layer.Layer31;
+      sensor.center.x = -1.5;
+      sensor.isTrigger = true;
+      const excluded = root.addComponent(BoxCollider);
+      excluded.collisionLayer = Layer.Layer31;
+      excluded.center.x = 1.5;
+      const hidden = root.addComponent(BoxCollider);
+      hidden.collisionLayer = Layer.Layer31;
+      hidden.isSceneQuery = false;
+
+      const center = new Vector3();
+      const halfExtents = new Vector3(3, 3, 3);
+      const layerMask = Layer.Layer31;
+      const requireUnexcludedSolid = { layerMask, includeTriggers: false, exclude: [excluded] };
+      const checks = [
+        (filter: PhysicsQueryFilter) => physicsScene.checkBox(center, halfExtents, undefined, filter),
+        (filter: PhysicsQueryFilter) => physicsScene.checkSphere(center, 3, filter),
+        (filter: PhysicsQueryFilter) => physicsScene.checkCapsule(center, 3, 8, undefined, filter)
+      ];
+      for (const check of checks) {
+        expect(check({ layerMask })).toBe(true);
+        expect(check({ layerMask, exclude: [excluded] })).toBe(true);
+        expect(check({ layerMask, includeTriggers: false })).toBe(true);
+        expect(check(requireUnexcludedSolid)).toBe(false);
+      }
+
+      hidden.isSceneQuery = true;
+      for (const check of checks) expect(check(requireUnexcludedSolid)).toBe(true);
     });
 
     it("keeps nested rigidbody poses independent after reparenting, disabling a body, and changing scenes", () => {
@@ -1866,10 +1901,19 @@ describe("Physics Test", () => {
 
       center.y = -1.75;
       expect(physics.overlapCapsuleAll(center, radius, height)).toEqual([]);
+      expect(physics.checkCapsule(center, radius, height)).toBe(false);
       center.y = -1.25;
       expect(physics.overlapCapsuleAll(center, radius, height)).toEqual([target]);
+      expect(physics.checkCapsule(center, radius, height)).toBe(true);
       const sideways = new Quaternion().rotateZ(-Math.PI / 2);
       expect(physics.overlapCapsuleAll(center, radius, height, sideways)).toEqual([]);
+      expect(physics.checkCapsule(center, radius, height, sideways)).toBe(false);
+
+      const halfExtents = new Vector3(0.25, 1, 0.25);
+      expect(physics.checkBox(center, halfExtents)).toBe(true);
+      expect(physics.checkBox(center, halfExtents, sideways)).toBe(false);
+      expect(physics.checkSphere(center, 0.5)).toBe(false);
+      expect(physics.checkSphere(center, 1)).toBe(true);
 
       root.destroy();
     });
@@ -2948,6 +2992,14 @@ describe("Physics Test", () => {
       expect(physicsScene.overlapSphereAll(new Vector3(), 1e40)).toEqual([]);
       expect(physicsScene.overlapCapsuleAll(new Vector3(), 1e-40, 1)).toEqual([]);
       expect(physicsScene.overlapCapsuleAll(new Vector3(), 1, 1e40)).toEqual([]);
+
+      const center = new Vector3();
+      expect(physicsScene.checkBox(center, new Vector3(0, 1, 1))).toBe(false);
+      expect(physicsScene.checkBox(center, new Vector3(1e40, 1, 1))).toBe(false);
+      expect(physicsScene.checkSphere(center, NaN)).toBe(false);
+      expect(physicsScene.checkSphere(center, 1e-40)).toBe(false);
+      expect(physicsScene.checkCapsule(center, 0.5, 1)).toBe(false);
+      expect(physicsScene.checkCapsule(center, 1, 1e40)).toBe(false);
     });
 
     afterEach(() => {

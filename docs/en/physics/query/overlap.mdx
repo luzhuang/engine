@@ -9,13 +9,21 @@ Overlap Detection is a physics engine feature used to detect all overlapping col
 
 ## Overview
 
-Galacean Physics Engine provides three overlap detection functions:
+Galacean Physics Engine supports box, sphere, and capsule overlap queries:
 
 - **overlapBoxAll** - Box Overlap: Detects all colliders overlapping with a cubic region
 - **overlapSphereAll** - Sphere Overlap: Detects all colliders overlapping with a spherical region
 - **overlapCapsuleAll** - Capsule Overlap: Detects all colliders overlapping with a capsule region
 
 <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*VDrBSajmuW8AAAAAWeAAAAgAesJ_AQ/original" />
+
+## Check whether a region is occupied
+
+Use `checkBox`, `checkSphere`, or `checkCapsule` when you only need a yes/no answer. They use the same dimensions, world-space orientation, and query filters as the corresponding `overlap*All` methods. The query stops at the first matching collider and returns a boolean.
+
+```typescript
+const occupied = physicsScene.checkBox(buildCenter, buildHalfExtents, undefined, buildingLayerMask);
+```
 
 ## Use Cases
 
@@ -269,7 +277,7 @@ class ElevatorDetector {
 
 ## Return Values
 
-All detection functions return a `Collider[]` array containing all overlapping Colliders.
+The `overlap*All` methods return a `Collider[]` array containing all overlapping Colliders.
 
 ## Performance Optimization Tips
 

@@ -63,6 +63,7 @@ The geometry follows the Entity's world scale. `rotation` inherited from Collide
 ### Specific Properties
 | Property | Description | Default |
 |----------|-------------|---------|
+| [**detectCollisions**](/apis/core/#CharacterController-detectCollisions) | Lets incoming rigidbodies and other controllers collide with this controller. Setting it to `false` also disables trigger interactions. The controller's own `move()` still detects obstacles, and `isSceneQuery` still controls query visibility. | true |
 | [**stepOffset**](/apis/core/#CharacterController-stepOffset) | Requested step height in world units. PhysX limits the effective step to the scaled height. The property retains the requested value. Finite negative values are clamped to 0. | 0.5 |
 | [**climbingMode**](/apis/core/#CharacterController-climbingMode) | Capsule step behavior. `Easy` allows the rounded capsule to climb higher than `stepOffset`. `Constrained` limits that behavior. | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | Maximum slope angle (in degrees) the character can walk on.<ul><li>Surfaces steeper than this angle will be treated as unwalkable walls</li><li>Affects the character's climbing ability</li></ul> | 45° |

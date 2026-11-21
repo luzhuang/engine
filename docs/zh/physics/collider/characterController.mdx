@@ -63,6 +63,7 @@ label: Physics
 ### 特有属性
 | 属性 | 描述 | 默认值 |
 | ---- | ---- | ------ |
+| [**detectCollisions**](/apis/core/#CharacterController-detectCollisions) | 是否阻挡撞向本控制器的刚体和其他角色控制器。设为 `false` 也会关闭触发器交互。本控制器调用 `move()` 时仍检测障碍，查询可见性仍由 `isSceneQuery` 控制。 | true |
 | [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。PhysX 将实际跨越高度限制在控制器缩放后的高度以内，属性保留请求值。有限负值会限制为 0。 | 0.5 |
 | [**climbingMode**](/apis/core/#CharacterController-climbingMode) | 胶囊的跨台阶方式。`Easy` 允许胶囊依靠弧面跨上高于 `stepOffset` 的台阶，`Constrained` 限制这一行为。 | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | 角色可以行走的最大斜坡角度（度）。<ul><li>超过此角度的斜面将被视为不可行走的墙壁</li><li>影响角色的爬坡能力</li></ul> | 45° |

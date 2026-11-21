@@ -9,13 +9,21 @@ label: Physics
 
 ## 概述
 
-Galacean 物理引擎提供三种重叠检测功能：
+Galacean 物理引擎支持盒子、球体和胶囊重叠查询：
 
 - **overlapBoxAll** - 盒子重叠：检测与立方体区域重叠的所有碰撞器
 - **overlapSphereAll** - 球体重叠：检测与球形区域重叠的所有碰撞器
 - **overlapCapsuleAll** - 胶囊重叠：检测与胶囊区域重叠的所有碰撞器
 
 <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*VDrBSajmuW8AAAAAWeAAAAgAesJ_AQ/original" />
+
+## 检查区域是否被占用
+
+只需判断有无重叠时，使用 `checkBox`、`checkSphere` 或 `checkCapsule`。形状尺寸、世界空间旋转和过滤条件与对应的 `overlap*All` 方法一致。查询在找到第一个符合条件的碰撞器时结束，返回布尔值。
+
+```typescript
+const occupied = physicsScene.checkBox(buildCenter, buildHalfExtents, undefined, buildingLayerMask);
+```
 
 ## 应用场景
 
@@ -269,7 +277,7 @@ class ElevatorDetector {
 
 ## 返回值说明
 
-所有检测函数都返回 `Collider[]` 数组，包含所有重叠的碰撞器。
+`overlap*All` 方法返回 `Collider[]` 数组，包含所有重叠的碰撞器。
 
 ## 性能优化建议
 

@@ -58,6 +58,7 @@ export class CharacterController extends Collider {
   private _height = 2;
   @ignoreClone
   private _size: Vector3;
+  private _detectCollisions = true;
   private _stepOffset = 0.5;
   private _climbingMode = ControllerClimbingMode.Constrained;
   private _nonWalkableMode: ControllerNonWalkableMode = ControllerNonWalkableMode.PreventClimbing;
@@ -168,6 +169,23 @@ export class CharacterController extends Collider {
   override set isTrigger(value: boolean) {
     if (value) {
       throw new Error("CharacterController cannot be a trigger.");
+    }
+  }
+
+  /**
+   * Whether other rigidbodies and character controllers can collide with this controller.
+   * @defaultValue true
+   * @remarks Disabling incoming collisions also disables trigger interactions. The controller's own
+   * {@link move} still detects collisions, and {@link Collider.isSceneQuery} controls query visibility independently.
+   */
+  get detectCollisions(): boolean {
+    return this._detectCollisions;
+  }
+
+  set detectCollisions(value: boolean) {
+    if (this._detectCollisions !== value) {
+      this._detectCollisions = value;
+      (<ICharacterController>this._native)?.setDetectCollisions(value);
     }
   }
 
@@ -504,6 +522,7 @@ export class CharacterController extends Collider {
       controller.setLayerOverrides(this._includeLayers, this._excludeLayers);
     }
     controller.setIsSceneQuery(this.isSceneQuery);
+    if (!this._detectCollisions) controller.setDetectCollisions(false);
     controller.setClimbingMode(this._climbingMode);
     controller.setNonWalkableMode(this._nonWalkableMode);
     controller.setUpDirection(this._upDirection);

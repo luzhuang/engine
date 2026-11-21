@@ -696,7 +696,7 @@ export class PhysicsScene {
 
     const cylinderHeight = height - 2 * radius;
     const normalizedDirection =
-      distance > 0 && Collider._isValidPositiveFloat32(radius) && Collider._isValidPositiveFloat32(cylinderHeight * 0.5)
+      distance > 0 && PhysicsScene._isValidCapsuleDimensions(radius, cylinderHeight)
         ? this._syncCastDirection(direction)
         : null;
 
@@ -804,8 +804,7 @@ export class PhysicsScene {
     const cylinderHeight = height - 2 * radius;
     const normalized =
       distance > 0 &&
-      Collider._isValidPositiveFloat32(radius) &&
-      Collider._isValidPositiveFloat32(cylinderHeight * 0.5) &&
+      PhysicsScene._isValidCapsuleDimensions(radius, cylinderHeight) &&
       this._syncCastDirection(direction);
     if (normalized) {
       this._nativePhysicsScene.capsuleCast(
@@ -823,6 +822,74 @@ export class PhysicsScene {
       );
     }
     return this._trimCastHits(outHits, count);
+  }
+
+  /**
+   * Tests whether a box overlaps a collider that matches the query filter.
+   * @param center - Center in world space.
+   * @param halfExtents - Half the box size along each of its axes, in world units.
+   * @param orientation - World-space rotation. Defaults to the identity rotation.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
+   * @returns Whether any collider overlaps. Invalid dimensions return false.
+   */
+  checkBox(
+    center: Vector3,
+    halfExtents: Vector3,
+    orientation: Quaternion = PhysicsScene._identityQuaternion,
+    layerMask: Layer | PhysicsQueryFilter = Layer.Everything
+  ): boolean {
+    if (!PhysicsScene._isValidBoxExtents(halfExtents)) return false;
+
+    this._syncColliders();
+    return this._nativePhysicsScene.checkBox(
+      center,
+      orientation,
+      halfExtents,
+      PhysicsScene._prepareQueryFilter(layerMask)
+    );
+  }
+
+  /**
+   * Tests whether a sphere overlaps a collider that matches the query filter.
+   * @param center - Center in world space.
+   * @param radius - Radius in world units.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
+   * @returns Whether any collider overlaps. Invalid dimensions return false.
+   */
+  checkSphere(center: Vector3, radius: number, layerMask: Layer | PhysicsQueryFilter = Layer.Everything): boolean {
+    if (!Collider._isValidPositiveFloat32(radius)) return false;
+
+    this._syncColliders();
+    return this._nativePhysicsScene.checkSphere(center, radius, PhysicsScene._prepareQueryFilter(layerMask));
+  }
+
+  /**
+   * Tests whether a capsule overlaps a collider that matches the query filter.
+   * @param center - Center in world space.
+   * @param radius - Radius in world units.
+   * @param height - Total height in world units, including both caps. Must exceed twice the radius.
+   * @param orientation - World-space rotation of the capsule, whose local long axis is Y. Defaults to the identity rotation.
+   * @param layerMask - Collision layers or filters to apply. Defaults to `Layer.Everything`.
+   * @returns Whether any collider overlaps. Invalid dimensions return false.
+   */
+  checkCapsule(
+    center: Vector3,
+    radius: number,
+    height: number,
+    orientation: Quaternion = PhysicsScene._identityQuaternion,
+    layerMask: Layer | PhysicsQueryFilter = Layer.Everything
+  ): boolean {
+    const cylinderHeight = height - 2 * radius;
+    if (!PhysicsScene._isValidCapsuleDimensions(radius, cylinderHeight)) return false;
+
+    this._syncColliders();
+    return this._nativePhysicsScene.checkCapsule(
+      center,
+      radius,
+      cylinderHeight,
+      orientation,
+      PhysicsScene._prepareQueryFilter(layerMask)
+    );
   }
 
   /**
@@ -899,7 +966,7 @@ export class PhysicsScene {
     colliders: Collider[] = []
   ): Collider[] {
     const cylinderHeight = height - 2 * radius;
-    if (!(Collider._isValidPositiveFloat32(radius) && Collider._isValidPositiveFloat32(cylinderHeight * 0.5))) {
+    if (!PhysicsScene._isValidCapsuleDimensions(radius, cylinderHeight)) {
       colliders.length = 0;
       return colliders;
     }
@@ -1351,6 +1418,10 @@ export class PhysicsScene {
       Collider._isValidPositiveFloat32(halfExtents.y) &&
       Collider._isValidPositiveFloat32(halfExtents.z)
     );
+  }
+
+  private static _isValidCapsuleDimensions(radius: number, cylinderHeight: number): boolean {
+    return Collider._isValidPositiveFloat32(radius) && Collider._isValidPositiveFloat32(cylinderHeight * 0.5);
   }
 
   private _raycast(

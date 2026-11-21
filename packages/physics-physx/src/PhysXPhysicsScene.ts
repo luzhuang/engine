@@ -378,6 +378,45 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     );
   }
 
+  /** {@inheritDoc IPhysicsScene.checkBox } */
+  checkBox(center: Vector3, orientation: Quaternion, halfExtents: Vector3, filter: IPhysicsQueryFilter): boolean {
+    return this._pxSceneQueries.checkOverlap(
+      this._getBoxGeometry(halfExtents),
+      PhysXPhysicsScene._queryPose(center, orientation),
+      filter.layerMask,
+      filter.includeTriggers,
+      filter.excludedShapeIds
+    );
+  }
+
+  /** {@inheritDoc IPhysicsScene.checkSphere } */
+  checkSphere(center: Vector3, radius: number, filter: IPhysicsQueryFilter): boolean {
+    return this._pxSceneQueries.checkOverlap(
+      this._getSphereGeometry(radius),
+      PhysXPhysicsScene._queryPose(center),
+      filter.layerMask,
+      filter.includeTriggers,
+      filter.excludedShapeIds
+    );
+  }
+
+  /** {@inheritDoc IPhysicsScene.checkCapsule } */
+  checkCapsule(
+    center: Vector3,
+    radius: number,
+    height: number,
+    orientation: Quaternion,
+    filter: IPhysicsQueryFilter
+  ): boolean {
+    return this._pxSceneQueries.checkOverlap(
+      this._getCapsuleGeometry(radius, height),
+      PhysXPhysicsScene._queryCapsulePose(center, orientation),
+      filter.layerMask,
+      filter.includeTriggers,
+      filter.excludedShapeIds
+    );
+  }
+
   /**
    * {@inheritDoc IPhysicsScene.overlapBoxAll }
    */

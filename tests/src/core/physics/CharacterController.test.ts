@@ -98,6 +98,7 @@ describe("CharacterController", () => {
     expect(capsule.size.x).toBe(1);
     expect(capsule.size.y).toBe(1);
     expect(capsule.size.z).toBe(1);
+    expect(capsule.detectCollisions).toBe(true);
     expect(capsule.stepOffset).toBe(0.5);
     expect(capsule.climbingMode).toBe(ControllerClimbingMode.Constrained);
     expect(capsule.nonWalkableMode).toBe(ControllerNonWalkableMode.PreventClimbing);
@@ -295,6 +296,105 @@ describe("CharacterController", () => {
 
     expect(flags).toBe(ControllerCollisionFlag.None);
     expect(role.transform.worldPosition.x).toBe(2);
+  });
+
+  it("blocks its own movement while allowing another controller through after a geometry rebuild", () => {
+    role.transform.setPosition(0, 3, 0);
+    controller.stepOffset = 0;
+    const target = root.createChild("target");
+    target.transform.setPosition(3, 3, 0);
+    const other = target.addComponent(CharacterController);
+    other.stepOffset = 0;
+    const left = new Vector3(-5, 0, 0);
+
+    expect(other.move(left) & ControllerCollisionFlag.Sides).toBe(ControllerCollisionFlag.Sides);
+
+    target.transform.setPosition(3, 3, 0);
+    controller.detectCollisions = false;
+    expect(move(new Vector3(5, 0, 0)) & ControllerCollisionFlag.Sides).toBe(ControllerCollisionFlag.Sides);
+    role.transform.setPosition(0, 3, 0);
+
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    const hit = new HitResult();
+    const ray = new Ray(new Vector3(0, 3, -3), new Vector3(0, 0, 1));
+    expect(physics.raycast(ray, hit)).toBe(true);
+    expect(hit.collider).toBe(controller);
+    expect(other.move(left)).toBe(ControllerCollisionFlag.None);
+    expect(target.transform.worldPosition.x).toBeCloseTo(-2);
+
+    controller.enabled = false;
+    controller.enabled = true;
+    target.transform.setPosition(3, 3, 0);
+    expect(other.move(left)).toBe(ControllerCollisionFlag.None);
+
+    controller.detectCollisions = true;
+    target.transform.setPosition(3, 3, 0);
+    expect(other.move(left) & ControllerCollisionFlag.Sides).toBe(ControllerCollisionFlag.Sides);
+  });
+
+  it("allows an incoming dynamic body through when detectCollisions is false", () => {
+    role.transform.setPosition(0, 3, 0);
+    const falling = addBox(new Vector3(0.5, 0.5, 0.5), new Vector3(0, 5, 0)).entity;
+    const body = falling.addComponent(Rigidbody);
+    physics.autoSimulation = false;
+
+    for (let i = 0; i < 120; i++) physics.step();
+    expect(falling.transform.worldPosition.y).toBeGreaterThan(3);
+
+    controller.detectCollisions = false;
+    body.wakeUp();
+    for (let i = 0; i < 120; i++) physics.step();
+    expect(falling.transform.worldPosition.y).toBeCloseTo(0.25, 1);
+  });
+
+  it("starts and ends trigger overlaps when detectCollisions changes", () => {
+    role.transform.setPosition(0, 3, 0);
+    controller.detectCollisions = false;
+    const trigger = addBox(new Vector3(2, 2, 2), new Vector3(0, 3, 0));
+    trigger.isTrigger = true;
+    class TriggerRecorder extends Script {
+      onTriggerEnter = vi.fn();
+      onTriggerStay = vi.fn();
+      onTriggerExit = vi.fn();
+    }
+    const recorder = trigger.entity.addComponent(TriggerRecorder);
+    physics.autoSimulation = false;
+
+    physics.step();
+    expect(recorder.onTriggerEnter).not.toHaveBeenCalled();
+
+    controller.detectCollisions = true;
+    physics.step();
+    expect(recorder.onTriggerEnter).toHaveBeenCalledExactlyOnceWith(controller, trigger);
+
+    controller.detectCollisions = false;
+    recorder.onTriggerStay.mockClear();
+    physics.step();
+    physics.step();
+    expect(recorder.onTriggerExit).toHaveBeenCalledExactlyOnceWith(controller, trigger);
+    expect(recorder.onTriggerStay).not.toHaveBeenCalled();
+  });
+
+  it("keeps an overlapping trigger active after disabling and re-enabling collisions between steps", () => {
+    role.transform.setPosition(0, 3, 0);
+    const trigger = addBox(new Vector3(2, 2, 2), new Vector3(0, 3, 0));
+    trigger.isTrigger = true;
+    class TriggerRecorder extends Script {
+      onTriggerStay = vi.fn();
+    }
+    const recorder = trigger.entity.addComponent(TriggerRecorder);
+    physics.autoSimulation = false;
+
+    physics.step();
+    physics.step();
+    expect(recorder.onTriggerStay).toHaveBeenCalledWith(controller, trigger);
+
+    controller.detectCollisions = false;
+    controller.detectCollisions = true;
+    physics.step();
+    recorder.onTriggerStay.mockClear();
+    physics.step();
+    expect(recorder.onTriggerStay).toHaveBeenCalledExactlyOnceWith(controller, trigger);
   });
 
   it("lets a controller-hit script apply an impulse to the contacted Rigidbody", () => {
@@ -759,6 +859,7 @@ describe("CharacterController", () => {
       controller.radius = 0.2;
       controller.height = 1.4;
       controller.stepOffset = 0.2;
+      controller.detectCollisions = false;
       controller.climbingMode = ControllerClimbingMode.Easy;
       controller.slopeLimit = 30;
       controller.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSliding;
@@ -775,6 +876,7 @@ describe("CharacterController", () => {
       expect(copy.radius).toBe(0.2);
       expect(copy.height).toBe(1.4);
       expect(copy.stepOffset).toBe(0.2);
+      expect(copy.detectCollisions).toBe(false);
       expect(copy.climbingMode).toBe(ControllerClimbingMode.Easy);
       expect(copy.slopeLimit).toBe(30);
       expect(copy.nonWalkableMode).toBe(ControllerNonWalkableMode.PreventClimbingAndForceSliding);
