@@ -192,7 +192,7 @@ export class ParticleRenderer extends Renderer {
   }
 
   protected override _updateBounds(worldBounds: BoundingBox): void {
-    this.generator._bounds.update(worldBounds);
+    this.generator._bounds.update(worldBounds, true);
   }
 
   protected override _update(context: RenderContext): void {
@@ -228,6 +228,8 @@ export class ParticleRenderer extends Renderer {
       material = this.engine._basicResources.particleMagentaMaterial;
     }
 
+    // Feedback has already consumed the simulated pose during the particle update.
+    generator.main._updateRenderPose(this.shaderData);
     const engine = this._engine;
     const renderElement = engine._renderElementPool.get();
     renderElement.set(this, material, generator._primitive, generator._subPrimitive);

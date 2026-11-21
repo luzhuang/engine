@@ -1,5 +1,5 @@
 import { DataObject } from "../../base/DataObject";
-import { Color, Rand, Vector3, Vector4 } from "@galacean/engine-math";
+import { Color, Quaternion, Rand, Vector3, Vector4 } from "@galacean/engine-math";
 import { ignoreClone } from "../../clone/CloneDecorators";
 import type { ICloneHook } from "../../clone/ICloneHook";
 import type { ShaderData } from "../../shader/ShaderData";
@@ -76,6 +76,8 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
 
   @ignoreClone
   private readonly _worldRotationValue = new Vector4();
+  @ignoreClone
+  private _renderPosition?: Vector3;
   private _duration = 5;
   private _startLifetime: ParticleCompositeCurve;
   private _startSpeed: ParticleCompositeCurve;
@@ -302,21 +304,12 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
   _updateShaderData(shaderData: ShaderData): void {
     const renderer = this._generator._renderer;
     const transform = renderer.entity.transform;
+    const space = this._simulationSpace;
 
-    switch (this.simulationSpace) {
-      case ParticleSimulationSpace.Local: {
-        shaderData.setVector3(MainModule._worldPosition, transform.worldPosition);
-        // Maybe ShaderData should support Quaternion
-        shaderData.setVector4(
-          MainModule._worldRotation,
-          this._worldRotationValue.copyFrom(transform.worldRotationQuaternion)
-        );
-        break;
-      }
-      case ParticleSimulationSpace.World:
-        break;
-      default:
-        throw new Error("ParticleRenderer: SimulationSpace value is invalid.");
+    if (space === ParticleSimulationSpace.Local) {
+      this._setEmitterPose(shaderData, transform.worldPosition, transform.worldRotationQuaternion);
+    } else if (space !== ParticleSimulationSpace.World) {
+      throw new Error("ParticleRenderer: SimulationSpace value is invalid.");
     }
 
     switch (this.scalingMode) {
@@ -339,9 +332,27 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
     }
 
     shaderData.setVector3(MainModule._gravity, renderer.scene!.physics.gravity);
-    shaderData.setInt(MainModule._simulationSpace, this.simulationSpace);
+    shaderData.setInt(MainModule._simulationSpace, space);
     shaderData.setFloat(MainModule._startRotation3D, +this.startRotation3D);
     shaderData.setInt(MainModule._scaleMode, this.scalingMode);
+  }
+
+  /** @internal */
+  _updateRenderPose(shaderData: ShaderData): void {
+    if (this._simulationSpace !== ParticleSimulationSpace.Local) return;
+
+    const entity = this._generator._renderer.entity;
+    const transform = entity.transform;
+    const pose = entity.scene?.physics._getRenderPose(entity);
+    if (pose) {
+      this._setEmitterPose(
+        shaderData,
+        pose.transformPoint(transform.worldPosition, (this._renderPosition ||= new Vector3())),
+        transform._getRenderWorldRotationQuaternion(pose)
+      );
+    } else if (this._renderPosition && shaderData.getVector3(MainModule._worldPosition) === this._renderPosition) {
+      this._setEmitterPose(shaderData, transform.worldPosition, transform.worldRotationQuaternion);
+    }
   }
 
   /**
@@ -352,6 +363,11 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
     if (target._simulationSpace === ParticleSimulationSpace.World) {
       target._generator._bounds.generateTransformed();
     }
+  }
+
+  private _setEmitterPose(shaderData: ShaderData, position: Vector3, rotation: Quaternion): void {
+    shaderData.setVector3(MainModule._worldPosition, position);
+    shaderData.setVector4(MainModule._worldRotation, this._worldRotationValue.copyFrom(rotation));
   }
 
   private _onCompositeCurveChange(lastValue: ParticleCompositeCurve, value: ParticleCompositeCurve): void {
