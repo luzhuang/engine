@@ -23,6 +23,8 @@ export class ParticleBounds {
   private static readonly _tempInitialDisplacement = new Vector3();
   private static readonly _tempMatrix = new Matrix();
   private static readonly _tempEmissionBounds = new BoundingBox();
+  private static readonly _tempSourceBounds = new BoundingBox();
+  private static readonly _tempRenderPosition = new Vector3();
   private static readonly _tempScaledBounds = new BoundingBox();
 
   private static readonly _recordStride = 15;
@@ -50,21 +52,46 @@ export class ParticleBounds {
 
   constructor(private readonly _generator: ParticleGenerator) {}
 
-  update(out: BoundingBox): void {
+  update(out: BoundingBox, render = false): BoundingBox {
     const generator = this._generator;
+    const entity = generator._renderer.entity;
+    const local = generator.main.simulationSpace === ParticleSimulationSpace.Local;
+    const pose = render && local ? entity.scene?.physics._getRenderPose(entity) : undefined;
+    const transform = entity.transform;
     if (!generator.isAlive) {
-      const worldPosition = generator._renderer.entity.transform.worldPosition;
-      out.min.copyFrom(worldPosition);
-      out.max.copyFrom(worldPosition);
-      return;
+      const worldPosition = transform.worldPosition;
+      if (pose) pose.transformPoint(worldPosition, out.min);
+      else out.min.copyFrom(worldPosition);
+      out.max.copyFrom(out.min);
+      return out;
     }
 
     this.generateTransformed();
-    if (generator.main.simulationSpace === ParticleSimulationSpace.Local) {
-      this._updateLocal(out);
+    if (local) {
+      if (pose && !generator._feedbackSimulator) {
+        this._updateLocal(
+          out,
+          pose.transformPoint(transform.worldPosition, ParticleBounds._tempRenderPosition),
+          transform._getRenderWorldRotationQuaternion(pose)
+        );
+      } else {
+        this._updateLocal(out);
+        if (pose) {
+          // Feedback positions already include world forces integrated into local space.
+          const center = out.getCenter(ParticleBounds._tempVector34);
+          out.min.subtract(center);
+          out.max.subtract(center);
+          Matrix.rotationQuaternion(pose.rotation, ParticleBounds._tempMatrix);
+          out.transform(ParticleBounds._tempMatrix);
+          pose.transformPoint(center, center);
+          out.min.add(center);
+          out.max.add(center);
+        }
+      }
     } else {
       this._updateWorld(out);
     }
+    return out;
   }
 
   generateTransformed(): void {
@@ -222,14 +249,12 @@ export class ParticleBounds {
   }
 
   captureSource(): void {
-    const renderer = this._generator._renderer;
-    const frameCount = renderer.engine.time.frameCount;
-    const currentBounds = renderer.bounds;
-    let sourceBounds = this._sourceBounds;
-    if (sourceBounds && this._sourceBoundsFrame === frameCount) {
+    const frameCount = this._generator._renderer.engine.time.frameCount;
+    const currentBounds = this._getSimulationBounds();
+    const sourceBounds = (this._sourceBounds ||= new BoundingBox());
+    if (this._sourceBoundsFrame === frameCount) {
       BoundingBox.merge(sourceBounds, currentBounds, sourceBounds);
     } else {
-      sourceBounds = this._sourceBounds ||= new BoundingBox();
       sourceBounds.copyFrom(currentBounds);
       this._sourceBoundsFrame = frameCount;
     }
@@ -392,32 +417,44 @@ export class ParticleBounds {
     }
   }
 
-  private _updateLocal(out: BoundingBox): void {
+  private _updateLocal(out: BoundingBox, position?: Vector3, rotation?: Quaternion): void {
     const generator = this._generator;
-    const maxLifetime = generator.main.startLifetime._getMax();
+    let boundsLifetime = generator.main.startLifetime._getMax();
+    let transformed = out;
 
-    const useOrbitalBounds = this._useOrbitalBounds();
     if (this._emissionRecordCount > 0) {
       const localBounds = ParticleBounds._tempEmissionBounds;
       const initialExtent = ParticleBounds._tempInitialDisplacement;
       localBounds.copyFrom(this._generatorBounds);
-      const boundsLifetime = Math.max(maxLifetime, this._mergeLocalEmissionBounds(localBounds, initialExtent));
-      this._calculateTransformedBounds(boundsLifetime, localBounds, out);
+      boundsLifetime = Math.max(boundsLifetime, this._mergeLocalEmissionBounds(localBounds, initialExtent));
+      this._calculateTransformedBounds(boundsLifetime, localBounds, out, position, rotation);
       out.min.subtract(initialExtent);
       out.max.add(initialExtent);
-      if (!useOrbitalBounds) {
-        this._addGravityToBounds(boundsLifetime, out, out);
-      }
-    } else if (useOrbitalBounds) {
-      out.copyFrom(this._transformedBounds);
+    } else if (position) {
+      this._calculateTransformedBounds(boundsLifetime, this._generatorBounds, out, position, rotation);
     } else {
-      this._addGravityToBounds(maxLifetime, this._transformedBounds, out);
+      transformed = this._transformedBounds;
     }
+    if (!this._useOrbitalBounds()) {
+      this._addGravityToBounds(boundsLifetime, transformed, out);
+    } else if (transformed !== out) {
+      out.copyFrom(transformed);
+    }
+  }
+
+  private _getSimulationBounds(): BoundingBox {
+    const { _renderer: renderer, main } = this._generator;
+    const entity = renderer.entity;
+    return main.simulationSpace === ParticleSimulationSpace.Local && entity.scene?.physics._getRenderPose(entity)
+      ? this.update(ParticleBounds._tempSourceBounds)
+      : renderer.bounds;
   }
 
   private _getSourceBounds(): BoundingBox {
     const renderer = this._generator._renderer;
-    return this._sourceBoundsFrame === renderer.engine.time.frameCount ? this._sourceBounds : renderer.bounds;
+    return this._sourceBoundsFrame === renderer.engine.time.frameCount
+      ? this._sourceBounds
+      : this._getSimulationBounds();
   }
 
   private _recordEmission(
