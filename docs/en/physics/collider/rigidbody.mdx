@@ -118,6 +118,10 @@ PhysX uses a linear sweep for dynamic bodies and speculative contacts for kinema
 
 `applyForce` and `applyTorque` default to `ForceMode.Force`. Use `ForceMode.Impulse` for a one-shot linear or angular impulse, `ForceMode.VelocityChange` for a direct change in velocity, and `ForceMode.Acceleration` for acceleration independent of mass or inertia.
 
+`applyRelativeForce` and `applyRelativeTorque` use the body's local axes with the same modes. To apply a force or impulse at a body-local offset, use `applyForceAtLocalPosition` for a world-space vector or `applyRelativeForceAtLocalPosition` for a body-local vector. Offsets are measured in world units along the body's unscaled local axes.
+
+`applyExplosionForce` applies a radial force to a dynamic body with linear falloff. It uses the nearest collider surface to compute the force and torque, or the center of mass if the origin is inside the collider or no volume is available. A radius of zero uses full strength at any distance. The upward offset adjusts only the direction.
+
 ## Script Usage
 
 ### Basic Configuration

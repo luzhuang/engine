@@ -180,6 +180,21 @@ export interface IDynamicCollider extends ICollider {
    */
   addTorque(torque: Vector3, mode: number): void;
 
+  /** Applies a body-local force at the center of mass using the selected mode. */
+  addRelativeForce(force: Vector3, mode: number): void;
+
+  /** Applies a body-local torque using the selected mode. */
+  addRelativeTorque(torque: Vector3, mode: number): void;
+
+  /** Applies a world-space force or impulse at an unscaled point relative to the body origin. */
+  addForceAtLocalPosition(force: Vector3, position: Vector3, impulse: boolean): void;
+
+  /** Applies a body-local force or impulse at an unscaled point relative to the body origin. */
+  addRelativeForceAtLocalPosition(force: Vector3, position: Vector3, impulse: boolean): void;
+
+  /** Applies a radial force with linear falloff at the nearest surface point, or at the center of mass. */
+  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): void;
+
   /**
    * Set a world-space target pose for the next simulation step.
    * @param positionOrRotation - The target position or rotation

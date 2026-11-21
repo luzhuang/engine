@@ -206,7 +206,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   /**
-   * The assigned material, or null to use the shared default material.
+   * The assigned material, or null to use the scene or built-in default.
    * @defaultValue null
    * @remarks Retains an assigned material until replaced or the Collider is destroyed. Use
    * {@link getInstanceMaterial} to obtain a per-Collider instance.
@@ -331,12 +331,12 @@ export class Collider extends Component implements ICloneHook<Collider> {
 
   /**
    * Returns a material instance for this Collider.
-   * @remarks The first call clones the assigned {@link material} or creates a default material, then assigns the
-   * instance to this Collider. Later calls reuse it until the material changes.
+   * @remarks The first call copies the effective material and assigns the copy to this Collider.
+   * Later calls reuse it until the assigned material changes.
    */
   getInstanceMaterial(): PhysicsMaterial {
     if (!this._materialInstanced) {
-      this.material = this._material ? this._material.clone() : new PhysicsMaterial(this.engine);
+      this.material = this._getMaterialOverride()?.clone() ?? new PhysicsMaterial(this.engine);
       this._materialInstanced = true;
     }
     return this._material!;
@@ -415,6 +415,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
    * @internal
    */
   override _onEnableInScene(): void {
+    this._syncDefaultMaterial();
     this._markDirty();
   }
 
@@ -423,6 +424,11 @@ export class Collider extends Component implements ICloneHook<Collider> {
    */
   override _onDisableInScene(scene: Scene): void {
     scene.physics._removeCollider(this);
+  }
+
+  /** @internal */
+  _syncDefaultMaterial(): void {
+    if (!this._material) this._native?.setMaterial(this._getNativeMaterial());
   }
 
   /**
@@ -654,7 +660,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   protected _getNativeMaterial(): IPhysicsMaterial {
-    return this._material?._nativeMaterial ?? BasicResources.physicsDefaultMaterial;
+    return this._getMaterialOverride()?._nativeMaterial ?? BasicResources.physicsDefaultMaterial;
   }
 
   /**
@@ -673,6 +679,10 @@ export class Collider extends Component implements ICloneHook<Collider> {
     this._material = null;
     this._rejectedBody = null;
     delete Engine._physicalObjectsMap[this._id];
+  }
+
+  private _getMaterialOverride(): PhysicsMaterial | null | undefined {
+    return this._material ?? (this._registeredScene ?? this.scene)?.physics.defaultMaterial;
   }
 
   @ignoreClone

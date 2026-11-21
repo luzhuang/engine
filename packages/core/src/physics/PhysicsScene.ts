@@ -18,6 +18,7 @@ import { Collider } from "./Collider";
 import { Collision } from "./Collision";
 import { HitResult } from "./HitResult";
 import type { Joint } from "./joint/Joint";
+import { PhysicsMaterial } from "./PhysicsMaterial";
 import { Rigidbody } from "./Rigidbody";
 
 /** Filters one scene query. */
@@ -102,6 +103,7 @@ export class PhysicsScene {
   private readonly _joints = new Map<number, Joint>();
   private _nextJointId = 0;
 
+  private _defaultMaterial: PhysicsMaterial | null = null;
   private _gravity: Vector3 = new Vector3(0, -9.81, 0);
   /** @internal */
   _nativePhysicsScene: IPhysicsScene;
@@ -119,6 +121,44 @@ export class PhysicsScene {
     const gravity = this._gravity;
     if (gravity !== value) {
       gravity.copyFrom(value);
+    }
+  }
+
+  /**
+   * The material used by colliders without an assigned material. Null selects the built-in material.
+   * @defaultValue null
+   * @remarks The scene retains the material until it is replaced or the scene is destroyed.
+   * @throws When the material has been destroyed, belongs to another Engine, or the scene has been destroyed.
+   */
+  get defaultMaterial(): PhysicsMaterial | null {
+    return this._defaultMaterial;
+  }
+
+  set defaultMaterial(value: PhysicsMaterial | null) {
+    const previous = this._defaultMaterial;
+    if (previous === value) return;
+
+    const scene = this._scene;
+    if (value !== null) {
+      if (!(value instanceof PhysicsMaterial))
+        throw new TypeError("Default physics material must be a PhysicsMaterial.");
+      if (value.engine !== scene.engine) throw new Error("The physics material belongs to another engine.");
+      if (value.destroyed || scene.destroyed) {
+        throw new Error("Cannot assign a default material when the physics material or scene has been destroyed.");
+      }
+      value._addReferCount(1);
+    }
+    this._defaultMaterial = value;
+    previous?._addReferCount(-1);
+
+    const roots = scene.rootEntities;
+    const colliders: Collider[] = [];
+    for (let i = 0, n = roots.length; i < n; i++) {
+      roots[i].getComponentsIncludeChildren(Collider, colliders);
+      for (let j = 0, n = colliders.length; j < n; j++) {
+        const collider = colliders[j];
+        if (collider._isRegisteredIn(scene)) collider._syncDefaultMaterial();
+      }
     }
   }
 
@@ -1232,6 +1272,8 @@ export class PhysicsScene {
     PhysicsScene._raycastHitPool.length = 0;
     PhysicsScene._raycastSeenHits.clear();
     this._joints.clear();
+    this._defaultMaterial?._addReferCount(-1);
+    this._defaultMaterial = null;
     this._nativePhysicsScene?.destroy();
     this._nativePhysicsScene = null!;
   }

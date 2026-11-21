@@ -1434,6 +1434,139 @@ describe("Rigidbody", function () {
     expect(body.linearVelocity.x).toBeCloseTo(mode === ForceMode.Acceleration ? 2 * physics.fixedTimeStep : 2, 5);
   });
 
+  describe("body-local forces", () => {
+    const deltaTime = 1 / 60;
+
+    function createBody(): Rigidbody {
+      const entity = rootEntity.createChild();
+      const body = entity.addComponent(Rigidbody);
+      body.mass = 2;
+      body.useGravity = false;
+      body.linearDamping = 0;
+      body.angularDamping = 0;
+      body.centerOfMass.set(1, 0, 0);
+      entity.transform.setPosition(5, 2, -3);
+      entity.transform.setScale(2, 3, 4);
+      entity.transform.setRotation(0, 0, 90);
+      return body;
+    }
+
+    beforeEach(() => {
+      engine.sceneManager.activeScene.physics.autoSimulation = false;
+    });
+
+    afterEach(() => {
+      engine.sceneManager.activeScene.physics.autoSimulation = true;
+    });
+
+    it.each([
+      [ForceMode.Force, deltaTime],
+      [ForceMode.Impulse, 1],
+      [ForceMode.VelocityChange, 2],
+      [ForceMode.Acceleration, 2 * deltaTime]
+    ] as const)("uses the body's current rotation in relative force and torque mode %s", (mode, speed) => {
+      const body = createBody();
+      body.inertiaTensor.set(2, 2, 2);
+
+      body.applyRelativeForce(new Vector3(2, 0, 0), mode);
+      body.applyRelativeTorque(new Vector3(0, 2, 0), mode);
+      engine.sceneManager.activeScene.physics.step(deltaTime);
+
+      expect(body.linearVelocity.x).toBeCloseTo(0, 5);
+      expect(body.linearVelocity.y).toBeCloseTo(speed, 5);
+      expect(body.linearVelocity.z).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.x).toBeCloseTo(-speed, 5);
+      expect(body.angularVelocity.y).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.z).toBeCloseTo(0, 5);
+    });
+
+    it.each([
+      [false, ForceMode.Force, deltaTime],
+      [false, ForceMode.Impulse, 1],
+      [true, ForceMode.Force, deltaTime],
+      [true, ForceMode.Impulse, 1]
+    ] as const)("applies a vector (relative=%s, mode=%s) at an unscaled body-local point", (relative, mode, speed) => {
+      const body = createBody();
+      body.inertiaTensor.set(1, 1, 1);
+      const vector = new Vector3(2, 0, 0);
+      const offset = new Vector3(0, 1, 0);
+
+      if (relative) {
+        body.applyRelativeForceAtLocalPosition(vector, offset, mode);
+      } else {
+        body.applyForceAtLocalPosition(vector, offset, mode);
+      }
+      engine.sceneManager.activeScene.physics.step(deltaTime);
+
+      expect(body.linearVelocity.x).toBeCloseTo(relative ? 0 : speed, 5);
+      expect(body.linearVelocity.y).toBeCloseTo(relative ? speed : 0, 5);
+      expect(body.linearVelocity.z).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.x).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.y).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.z).toBeCloseTo((relative ? -2 : 2) * speed, 5);
+    });
+  });
+
+  describe("explosion force", () => {
+    const deltaTime = 1 / 60;
+
+    function createBody(): Rigidbody {
+      const body = rootEntity.createChild().addComponent(Rigidbody);
+      body.mass = 2;
+      body.useGravity = false;
+      body.angularDamping = 0;
+      body.centerOfMass = new Vector3();
+      body.inertiaTensor.set(2, 2, 4);
+      return body;
+    }
+
+    beforeEach(() => {
+      engine.sceneManager.activeScene.physics.autoSimulation = false;
+    });
+
+    afterEach(() => {
+      engine.sceneManager.activeScene.physics.autoSimulation = true;
+    });
+
+    it.each([
+      [ForceMode.Force, deltaTime, deltaTime],
+      [ForceMode.Impulse, 1, 1],
+      [ForceMode.Acceleration, 2 * deltaTime, 4 * deltaTime],
+      [ForceMode.VelocityChange, 2, 4]
+    ] as const)("uses the nearest compound surface for force and torque in mode %s", (mode, speed, spin) => {
+      const body = createBody();
+      body.entity.addComponent(SphereCollider).center.set(10, 1, 0);
+      const near = body.entity.addComponent(SphereCollider);
+      near.radius = 1;
+      near.center.set(2, 1, 0);
+
+      body.applyExplosionForce(4, new Vector3(2, -2, 0), 4, 1, mode);
+      engine.sceneManager.activeScene.physics.step(deltaTime);
+
+      expect(body.linearVelocity.y).toBeCloseTo(speed, 5);
+      expect(body.linearVelocity.x).toBeCloseTo(0, 5);
+      expect(body.angularVelocity.z).toBeCloseTo(spin, 5);
+    });
+
+    it.each([false, true])(
+      "uses center of mass and applies full strength at radius zero (has shape=%s)",
+      (hasShape) => {
+        const body = createBody();
+        if (hasShape) body.entity.addComponent(SphereCollider).radius = 2;
+        body.centerOfMass.set(1, 0, 0);
+        const origin = new Vector3();
+
+        body.applyExplosionForce(100, origin, 0.5, 0, ForceMode.Impulse);
+        body.applyExplosionForce(2 * Math.SQRT2, origin, 0, 1, ForceMode.Impulse);
+        engine.sceneManager.activeScene.physics.step(deltaTime);
+
+        expect(body.linearVelocity.x).toBeCloseTo(1, 5);
+        expect(body.linearVelocity.y).toBeCloseTo(1, 5);
+        expect(body.angularVelocity.length()).toBe(0);
+      }
+    );
+  });
+
   it("preserves automatically computed inertia when only the principal axes are set", () => {
     const entity = rootEntity.createChild();
     entity.addComponent(BoxCollider).size.set(2, 4, 8);

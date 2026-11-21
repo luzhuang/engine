@@ -2,9 +2,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   BoxCollider,
   CapsuleCollider,
+  CharacterController,
+  Collider,
   MeshCollider,
   PhysicsMaterial,
+  PhysicsMaterialCombineMode,
   PlaneCollider,
+  Rigidbody,
+  Scene,
   Script,
   SphereCollider,
   WebGLEngine
@@ -26,6 +31,108 @@ describe("PhysicsMaterial ownership", () => {
     vi.restoreAllMocks();
   });
   afterAll(() => engine.destroy());
+
+  it("keeps one scene reference and instances the effective material", async () => {
+    const other = await WebGLEngine.create({ canvas: document.createElement("canvas"), physics });
+    const scene = new Scene(engine);
+    const material = new PhysicsMaterial(engine);
+    const foreign = new PhysicsMaterial(other);
+    try {
+      material.bounciness = 0.5;
+      scene.physics.defaultMaterial = material;
+      scene.physics.defaultMaterial = material;
+      expect(() => (scene.physics.defaultMaterial = foreign)).toThrow(/another engine/);
+      expect(() => (scene.physics.defaultMaterial = scene.ambientLight as unknown as PhysicsMaterial)).toThrow(
+        /must be a PhysicsMaterial/
+      );
+      const destroyedMaterial = new PhysicsMaterial(engine);
+      destroyedMaterial.destroy();
+      expect(() => (scene.physics.defaultMaterial = destroyedMaterial)).toThrow(/destroyed/);
+      expect(scene.physics.defaultMaterial).toBe(material);
+      expect(material.refCount).toBe(1);
+      expect(material.destroy()).toBe(false);
+      expect(foreign.refCount).toBe(0);
+
+      const collider = scene.createRootEntity().addComponent(BoxCollider);
+      expect(collider.material).toBeNull();
+      const instance = collider.getInstanceMaterial();
+      expect(instance).not.toBe(material);
+      expect(instance.bounciness).toBe(0.5);
+      expect(material.refCount).toBe(1);
+      expect(collider.getInstanceMaterial()).toBe(instance);
+      scene.destroy();
+      expect(material.refCount).toBe(0);
+      expect(scene.physics.defaultMaterial).toBeNull();
+    } finally {
+      scene.destroy();
+      other.destroy();
+    }
+  });
+
+  it.each([BoxCollider, CharacterController])("applies the scene fallback to an existing %s", (Type) => {
+    const source = new Scene(engine, "Source", { bounceThreshold: 0 });
+    const destination = new Scene(engine, "Destination", { bounceThreshold: 0 });
+    const bouncy = new PhysicsMaterial(engine);
+    bouncy.bounciness = 1;
+    bouncy.bounceCombine = PhysicsMaterialCombineMode.Maximum;
+    const inelastic = new PhysicsMaterial(engine);
+
+    function strike(scene: Scene): number {
+      const projectile = scene.createRootEntity("Projectile");
+      try {
+        projectile.transform.setPosition(-2, 0, 0);
+        projectile.addComponent(SphereCollider).material = inelastic;
+        const body = projectile.addComponent(Rigidbody);
+        body.linearVelocity.set(8, 0, 0);
+        for (let i = 0; i < 20; i++) scene.physics.step();
+        return body.linearVelocity.x;
+      } finally {
+        projectile.destroy();
+      }
+    }
+
+    try {
+      for (const scene of [source, destination]) {
+        engine.sceneManager.addScene(scene);
+        scene.physics.autoSimulation = false;
+        scene.physics.gravity.set(0, 0, 0);
+      }
+      const entity = source.createRootEntity("Target");
+      const collider = entity.addComponent<Collider>(Type);
+      expect(strike(source)).toBeCloseTo(0);
+
+      source.physics.defaultMaterial = bouncy;
+      expect(strike(source)).toBeLessThan(-7);
+      bouncy.bounciness = 0.5;
+      expect(strike(source)).toBeCloseTo(-4, 1);
+      bouncy.bounciness = 1;
+
+      collider.material = inelastic;
+      expect(strike(source)).toBeCloseTo(0);
+      collider.material = null;
+      expect(strike(source)).toBeLessThan(-7);
+
+      collider.enabled = false;
+      destination.addRootEntity(entity);
+      collider.enabled = true;
+      expect(strike(destination)).toBeCloseTo(0);
+
+      destination.physics.defaultMaterial = bouncy;
+      expect(strike(destination)).toBeLessThan(-7);
+      expect(bouncy.refCount).toBe(2);
+      destination.physics.defaultMaterial = null;
+      expect(bouncy.refCount).toBe(1);
+      expect(strike(destination)).toBeCloseTo(0);
+
+      source.addRootEntity(entity);
+      expect(strike(source)).toBeLessThan(-7);
+      source.destroy();
+      expect(bouncy.refCount).toBe(0);
+    } finally {
+      source.destroy();
+      destination.destroy();
+    }
+  });
 
   it.each(colliderTypes)("balances shared material references through %s cloning and destruction", (Type) => {
     const entity = engine.sceneManager.activeScene.createRootEntity();

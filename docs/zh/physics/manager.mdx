@@ -7,6 +7,10 @@ label: Physics
 
 物理场景（[PhysicsScene](/apis/core/#PhysicsScene)）用于管理场景中所有的物理组件，并且负责与物理后端通信，实现有关物理场景的全局操作，例如更新和射线检测等等。在多场景项目中，每个[Scene](/apis/core/Scene)都有自己的物理场景，Scene之间的物理系统是相互隔离互不影响的。
 
+## 默认材质
+
+设置 `scene.physics.defaultMaterial` 可以让场景内的碰撞体共享一个 PhysicsMaterial。碰撞体显式指定的材质优先。将场景默认材质设为 `null` 时使用引擎内置材质。
+
 ## 物理更新
 
 物理场景和渲染场景相互独立，但在程序运行过程中不断同步各自的数据。因此，和[脚本](/docs/script/script)一样，同步的时序也非常重要。物理场景的更新频率和渲染场景不同，通过以下参数进行控制：

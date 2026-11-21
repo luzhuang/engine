@@ -1,5 +1,14 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { AssetType, BoxCollider, Loader, PhysicsMaterial, Script, SphereCollider, WebGLEngine } from "@galacean/engine";
+import {
+  AssetType,
+  BoxCollider,
+  Loader,
+  PhysicsMaterial,
+  Scene,
+  Script,
+  SphereCollider,
+  WebGLEngine
+} from "@galacean/engine";
 import { PrefabResource } from "@galacean/engine-loader";
 import { createPhysics } from "../utils/physics";
 
@@ -59,6 +68,43 @@ describe("PhysicsMaterialLoader", () => {
     expect(replacement).not.toBe(first);
     expect(replacement.destroyed).toBe(false);
     expect(replacement.bounciness).toBe(0.3);
+  });
+
+  it("loads a scene default material from the first ref and releases it with the scene", async () => {
+    const resources = engine.resourceManager;
+    const materialUrl = assetUrl({ bounciness: 0.75 });
+    const materialPath = "materials/scene-default.physMat";
+    resources.registerVirtualResources([
+      { virtualPath: materialPath, path: materialUrl, type: AssetType.PhysicsMaterial }
+    ]);
+    const sceneUrl = assetUrl(
+      {
+        version: "2.0",
+        refs: [{ url: materialPath }],
+        scene: {
+          rootEntities: [0],
+          physics: { defaultMaterial: 0 },
+          background: { mode: 0, color: [0, 0, 0, 1] }
+        },
+        entities: [{ components: [0] }],
+        components: [{ type: "BoxCollider" }]
+      },
+      "scene"
+    );
+    const scene = await resources.load<Scene>({ url: sceneUrl, type: AssetType.Scene });
+    try {
+      const material = await resources.load<PhysicsMaterial>(materialUrl);
+      expect(scene.physics.defaultMaterial).toBe(material);
+      expect(material.bounciness).toBe(0.75);
+      expect(material.refCount).toBe(1);
+      const collider = scene.rootEntities[0].getComponent(BoxCollider);
+      expect(collider.material).toBeNull();
+      expect(collider.getInstanceMaterial().bounciness).toBe(0.75);
+      scene.destroy();
+      expect(material.refCount).toBe(0);
+    } finally {
+      scene.destroy();
+    }
   });
 
   it("keeps shared materials alive for prefab instances and releases duplicate dependencies once", async () => {

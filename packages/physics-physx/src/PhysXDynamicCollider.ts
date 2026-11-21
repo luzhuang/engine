@@ -213,6 +213,45 @@ export class PhysXDynamicCollider extends PhysXCollider implements IDynamicColli
     this._pxActor.addTorque(torque, this._physXPhysics._physX.PxForceMode.values[mode]);
   }
 
+  /** {@inheritDoc IDynamicCollider.addRelativeForce } */
+  addRelativeForce(force: Vector3, mode: number): void {
+    this._pxActor.addRelativeForce(force, this._physXPhysics._physX.PxForceMode.values[mode]);
+  }
+
+  /** {@inheritDoc IDynamicCollider.addRelativeTorque } */
+  addRelativeTorque(torque: Vector3, mode: number): void {
+    this._pxActor.addRelativeTorque(torque, this._physXPhysics._physX.PxForceMode.values[mode]);
+  }
+
+  /** {@inheritDoc IDynamicCollider.addForceAtLocalPosition } */
+  addForceAtLocalPosition(force: Vector3, position: Vector3, impulse: boolean): void {
+    if (impulse) {
+      this._pxActor.addImpulseAtLocalPos(force, position);
+    } else {
+      this._pxActor.addForceAtLocalPos(force, position);
+    }
+  }
+
+  /** {@inheritDoc IDynamicCollider.addRelativeForceAtLocalPosition } */
+  addRelativeForceAtLocalPosition(force: Vector3, position: Vector3, impulse: boolean): void {
+    if (impulse) {
+      this._pxActor.addLocalImpulseAtLocalPos(force, position);
+    } else {
+      this._pxActor.addLocalForceAtLocalPos(force, position);
+    }
+  }
+
+  /** {@inheritDoc IDynamicCollider.addExplosionForce } */
+  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): void {
+    this._pxActor.addExplosionForce(
+      strength,
+      origin,
+      radius,
+      upwardOffset,
+      this._physXPhysics._physX.PxForceMode.values[mode]
+    );
+  }
+
   /**
    * {@inheritDoc IDynamicCollider.setWorldTransform }
    */

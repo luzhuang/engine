@@ -33,6 +33,13 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     }
   }
 
+  private static _isPositionImpulse(mode: ForceMode.Force | ForceMode.Impulse): boolean {
+    if (mode !== ForceMode.Force && mode !== ForceMode.Impulse) {
+      throw new RangeError("A local-position force requires ForceMode.Force or ForceMode.Impulse.");
+    }
+    return mode === ForceMode.Impulse;
+  }
+
   /** @internal */
   @ignoreClone
   _dirtyIndex = -1;
@@ -560,6 +567,78 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    */
   applyTorque(torque: Vector3, mode: ForceMode = ForceMode.Force): void {
     this._phasedActiveInScene && this._getSyncedActor()?.addTorque(torque, mode);
+  }
+
+  /**
+   * Applies a force along the body's local axes at its center of mass.
+   * @param force - Body-local vector in the units of the selected mode.
+   * @param mode - How the value changes velocity. Defaults to `ForceMode.Force`.
+   */
+  applyRelativeForce(force: Vector3, mode: ForceMode = ForceMode.Force): void {
+    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeForce(force, mode);
+  }
+
+  /**
+   * Applies a torque around the body's local axes.
+   * @param torque - Body-local vector in the units of the selected mode.
+   * @param mode - How the value changes angular velocity. Defaults to `ForceMode.Force`.
+   */
+  applyRelativeTorque(torque: Vector3, mode: ForceMode = ForceMode.Force): void {
+    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeTorque(torque, mode);
+  }
+
+  /**
+   * Applies a world-space force or impulse at a body-local point.
+   * @param force - World-space vector in the units of the selected mode.
+   * @param position - Offset from the body's origin along its local axes, in world units.
+   * @param mode - Force or impulse. Defaults to `ForceMode.Force`.
+   * @throws When the mode is neither force nor impulse.
+   */
+  applyForceAtLocalPosition(
+    force: Vector3,
+    position: Vector3,
+    mode: ForceMode.Force | ForceMode.Impulse = ForceMode.Force
+  ): void {
+    const impulse = Rigidbody._isPositionImpulse(mode);
+    this._phasedActiveInScene && this._getSyncedActor()?.addForceAtLocalPosition(force, position, impulse);
+  }
+
+  /**
+   * Applies a body-local force or impulse at a body-local point.
+   * @param force - Body-local vector in the units of the selected mode.
+   * @param position - Offset from the body's origin along its local axes, in world units.
+   * @param mode - Force or impulse. Defaults to `ForceMode.Force`.
+   * @throws When the mode is neither force nor impulse.
+   */
+  applyRelativeForceAtLocalPosition(
+    force: Vector3,
+    position: Vector3,
+    mode: ForceMode.Force | ForceMode.Impulse = ForceMode.Force
+  ): void {
+    const impulse = Rigidbody._isPositionImpulse(mode);
+    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeForceAtLocalPosition(force, position, impulse);
+  }
+
+  /**
+   * Applies a radial force and the resulting torque to an active dynamic body.
+   * @param strength - Value at the explosion origin in the units of the selected mode.
+   * @param origin - Explosion center in world space.
+   * @param radius - Nonnegative radius in world units. Strength falls off linearly to zero at the radius.
+   * A radius of zero applies the full strength at any distance.
+   * @param upwardOffset - Lowers the apparent origin along world Y for the direction calculation, in world units.
+   * @param mode - How the force and torque change the body's velocity. Defaults to `ForceMode.Force`.
+   * @remarks Uses the closest Collider surface. If the origin is inside a Collider or no volume is available,
+   * the force is applied at the center of mass.
+   */
+  applyExplosionForce(
+    strength: number,
+    origin: Vector3,
+    radius: number,
+    upwardOffset = 0,
+    mode: ForceMode = ForceMode.Force
+  ): void {
+    this._phasedActiveInScene &&
+      this._getSyncedActor()?.addExplosionForce(strength, origin, radius, upwardOffset, mode);
   }
 
   /**

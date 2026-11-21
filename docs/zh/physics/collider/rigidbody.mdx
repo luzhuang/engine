@@ -118,6 +118,10 @@ PhysX 对动态刚体使用线性扫掠，对运动学刚体使用推测式接�
 
 `applyForce` 和 `applyTorque` 默认使用 `ForceMode.Force`。用 `ForceMode.Impulse` 施加一次线性冲量或角冲量，用 `ForceMode.VelocityChange` 直接改变速度，用 `ForceMode.Acceleration` 施加不受质量或惯性影响的加速度。
 
+`applyRelativeForce` 和 `applyRelativeTorque` 沿刚体的局部轴施力，支持相同的模式。指定刚体局部作用点时，世界空间向量用 `applyForceAtLocalPosition`，刚体局部向量用 `applyRelativeForceAtLocalPosition`。两者都支持力和冲量，作用点沿刚体未缩放的局部轴，以世界单位表示。
+
+`applyExplosionForce` 对动态刚体施加按距离线性衰减的径向力。它用最近的碰撞体表面点计算力和力矩。爆心在碰撞体内或没有可用体积时，作用点取质心。半径为 0 时在任意距离施加完整强度，向上偏移只影响方向。
+
 ## 脚本使用
 
 ### 基础配置
