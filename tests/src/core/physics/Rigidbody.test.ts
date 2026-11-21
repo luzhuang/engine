@@ -15,6 +15,7 @@ import {
   MeshCollider,
   PlaneCollider,
   PrimitiveMesh,
+  Script,
   Transform
 } from "@galacean/engine-core";
 import { WebGLEngine } from "@galacean/engine";
@@ -23,6 +24,11 @@ import { HeadlessEngine } from "@galacean/engine-rhi-null";
 import { HorizontalAlignmentMode, UITransform } from "@galacean/engine-ui";
 import { vi, describe, beforeAll, afterAll, beforeEach, afterEach, expect, it } from "vitest";
 import { PrefabParser } from "../../../../packages/loader/src/prefab/PrefabParser";
+
+class SleepRecorder extends Script {
+  onSleep = vi.fn();
+  onWake = vi.fn();
+}
 
 describe("Rigidbody", function () {
   let engine: Engine;
@@ -1210,6 +1216,99 @@ describe("Rigidbody", function () {
       physics.step();
       expect(box.transform.worldPosition.x).toBeGreaterThan(x);
       expect(joint.isBroken).toBe(true);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
+  it("reports a rigidbody's initial sleep state and the latest transition after each step", () => {
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 3, 0));
+    const body = box.getComponent(Rigidbody);
+    const recorder = box.addComponent(SleepRecorder);
+    const childRecorder = box.createChild().addComponent(SleepRecorder);
+    const physics = engine.sceneManager.activeScene.physics;
+    body.useGravity = false;
+
+    physics.autoSimulation = false;
+    try {
+      physics.step(1 / 60);
+      expect(recorder.onWake.mock.calls).toEqual([[body]]);
+      expect(recorder.onSleep).not.toHaveBeenCalled();
+
+      body.sleep();
+      body.wakeUp();
+      body.sleep();
+      expect(body.isSleeping()).toBe(true);
+      expect(recorder.onSleep).not.toHaveBeenCalled();
+      physics.step(1 / 60);
+      expect(recorder.onSleep.mock.calls).toEqual([[body]]);
+      expect(recorder.onWake).toHaveBeenCalledOnce();
+
+      physics.step(1 / 60);
+      expect(recorder.onSleep).toHaveBeenCalledOnce();
+      body.applyImpulse(new Vector3(1, 0, 0));
+      physics.step(1 / 60);
+      expect(recorder.onWake).toHaveBeenCalledTimes(2);
+
+      recorder.enabled = false;
+      body.sleep();
+      physics.step(1 / 60);
+      expect(recorder.onSleep).toHaveBeenCalledOnce();
+
+      body.wakeUp();
+      recorder.enabled = true;
+      physics.step(1 / 60);
+      expect(recorder.onWake).toHaveBeenCalledTimes(3);
+      expect(childRecorder.onSleep).not.toHaveBeenCalled();
+      expect(childRecorder.onWake).not.toHaveBeenCalled();
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
+  it("reports solver-induced sleep after the resting pose has been written back", () => {
+    addPlane(0, 0, 0);
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 2, 0));
+    const body = box.getComponent(Rigidbody);
+    const recorder = box.addComponent(SleepRecorder);
+    const physics = engine.sceneManager.activeScene.physics;
+    let height = 0;
+    recorder.onSleep.mockImplementation(() => {
+      height = box.transform.worldPosition.y;
+    });
+
+    physics.autoSimulation = false;
+    try {
+      for (let i = 0; i < 240 && !body.isSleeping(); i++) physics.step(1 / 60);
+      expect(recorder.onSleep.mock.calls).toEqual([[body]]);
+      expect(height).toBeCloseTo(0.5, 2);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
+  it("drops the rest of a sleep dispatch when a callback replaces the body's registration", () => {
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 3, 0));
+    const body = box.getComponent(Rigidbody);
+    const first = box.addComponent(SleepRecorder);
+    const second = box.addComponent(SleepRecorder);
+    const physics = engine.sceneManager.activeScene.physics;
+    body.useGravity = false;
+    first.onSleep.mockImplementation(() => {
+      body.simulationEnabled = false;
+      body.simulationEnabled = true;
+    });
+
+    physics.autoSimulation = false;
+    try {
+      physics.step(1 / 60);
+      expect(second.onWake).toHaveBeenCalledOnce();
+      body.sleep();
+      physics.step(1 / 60);
+      expect(first.onSleep).toHaveBeenCalledOnce();
+      expect(second.onSleep).not.toHaveBeenCalled();
+      physics.step(1 / 60);
+      expect(second.onWake).toHaveBeenCalledTimes(2);
     } finally {
       physics.autoSimulation = true;
     }

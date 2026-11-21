@@ -100,8 +100,8 @@ export class PhysicsScene {
   private _dirtyColliders: Collider[] = [];
   private _massDirtyBodies: Rigidbody[] = [];
   private _collision: Collision;
-  private readonly _joints = new Map<number, Joint>();
-  private _nextJointId = 0;
+  private readonly _eventTargets = new Map<number, Joint | Rigidbody>();
+  private _nextEventId = 0;
 
   private _defaultMaterial: PhysicsMaterial | null = null;
   private _gravity: Vector3 = new Vector3(0, -9.81, 0);
@@ -1272,15 +1272,15 @@ export class PhysicsScene {
   /**
    * @internal
    */
-  _registerJoint(joint: Joint): number {
-    const id = ++this._nextJointId;
-    this._joints.set(id, joint);
+  _registerEventTarget(target: Joint | Rigidbody): number {
+    const id = ++this._nextEventId;
+    this._eventTargets.set(id, target);
     return id;
   }
 
   /** @internal */
-  _unregisterJoint(id: number): void {
-    this._joints.delete(id);
+  _unregisterEventTarget(id: number): void {
+    this._eventTargets.delete(id);
   }
 
   /** @internal */
@@ -1311,7 +1311,7 @@ export class PhysicsScene {
     this._gravity._onValueChanged = null;
     PhysicsScene._raycastHitPool.length = 0;
     PhysicsScene._raycastSeenHits.clear();
-    this._joints.clear();
+    this._eventTargets.clear();
     this._defaultMaterial?._addReferCount(-1);
     this._defaultMaterial = null;
     this._nativePhysicsScene?.destroy();
@@ -1374,23 +1374,37 @@ export class PhysicsScene {
       PhysicsScene._dispatchScripts(state, collider1, collider0);
     }
 
-    const joints = this._joints;
     for (let i = 0; i < brokenJointIds.length; i++) {
-      const id = brokenJointIds[i];
-      const joint = joints.get(id);
-      if (!joint) continue;
-      const scripts = joint.entity._scripts;
-      const count = scripts.length;
-      scripts._startLoop();
-      try {
-        const elements = scripts._elements;
-        for (let j = 0; j < count; j++) {
-          elements[j]?.onJointBreak(joint);
-          if (!joints.has(id)) break;
-        }
-      } finally {
-        scripts._endLoop(PhysicsScene._scriptIndexSetter);
+      this._dispatchEventTarget(brokenJointIds[i], "onJointBreak");
+    }
+
+    const { bodySleepEventIds, bodySleepEventCount } = events;
+    for (let i = 0; i < bodySleepEventCount; i++) {
+      const id = bodySleepEventIds[i];
+      if (id < 0) this._dispatchEventTarget(-id, "onSleep");
+      else this._dispatchEventTarget(id, "onWake");
+    }
+  }
+
+  private _dispatchEventTarget(id: number, method: "onJointBreak" | "onSleep" | "onWake"): void {
+    const targets = this._eventTargets;
+    const target = targets.get(id);
+    if (!target) return;
+
+    const scripts = target.entity._scripts;
+    const count = scripts.length;
+    scripts._startLoop();
+    try {
+      const elements = scripts._elements;
+      for (let i = 0; i < count; i++) {
+        const script = elements[i];
+        if (!script) continue;
+        if (method === "onJointBreak") script.onJointBreak(target as Joint);
+        else script[method]?.(target as Rigidbody);
+        if (!targets.has(id)) break;
       }
+    } finally {
+      scripts._endLoop(PhysicsScene._scriptIndexSetter);
     }
   }
 

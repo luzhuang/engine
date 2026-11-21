@@ -48,7 +48,9 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     contactEvents: [] as ContactEvent[],
     contactEventCount: 0,
     triggerEvents: [] as TriggerEvent[],
-    brokenJointIds: [] as number[]
+    brokenJointIds: [] as number[],
+    bodySleepEventIds: [] as number[],
+    bodySleepEventCount: 0
   };
 
   private _triggerEventPool: TriggerEvent[] = [];
@@ -72,6 +74,10 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     const simulationCallback = {
       onJointBreak: (id: number) => {
         this._physicsEvents.brokenJointIds.push(id);
+      },
+      onBodySleepChanged: (id: number, sleeping: boolean) => {
+        const events = this._physicsEvents;
+        events.bodySleepEventIds[events.bodySleepEventCount++] = sleeping ? -id : id;
       },
       onContactBegin: (shape0ID: number, shape1ID: number, count: number, data: Float32Array) => {
         this._bufferContactEvent(shape0ID, shape1ID, count, data, PhysicsEventState.Enter);
@@ -216,6 +222,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
   update(elapsedTime: number): void {
     this._physicsEvents.contactEventCount = 0;
     this._physicsEvents.brokenJointIds.length = 0;
+    this._physicsEvents.bodySleepEventCount = 0;
     this._syncTriggerPairs();
     const scene = this._pxScene;
     scene.simulate(elapsedTime, true);

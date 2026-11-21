@@ -328,7 +328,7 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
       this._syncConnectedFrame();
     } else {
       const joint = (this._nativeJoint = this._createJoint(bodyActor));
-      this._breakEventId = scene.physics._registerJoint(this);
+      this._breakEventId = scene.physics._registerEventTarget(this);
       joint.setBreakEventId(this._breakEventId);
       if (connectedActor) joint.setConnectedCollider(connectedActor);
       this._syncNative();
@@ -354,7 +354,7 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   protected _destroyNativeJoint(scene: Scene): void {
     const nativeJoint = this._nativeJoint;
     if (nativeJoint) {
-      scene.physics._unregisterJoint(this._breakEventId);
+      scene.physics._unregisterEventTarget(this._breakEventId);
       nativeJoint.destroy();
       this._nativeJoint = null;
       this._wakeBodies();

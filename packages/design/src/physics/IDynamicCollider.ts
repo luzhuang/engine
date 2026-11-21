@@ -127,6 +127,9 @@ export interface IDynamicCollider extends ICollider {
    */
   setSleepThreshold(value: number): void;
 
+  /** Sets the scene registration ID for sleep and wake notifications. Use zero to unsubscribe. */
+  setSleepEventId(id: number): void;
+
   /**
    * Sets the solver iteration counts for the body.
    * @param positionIterations - Number of position iterations

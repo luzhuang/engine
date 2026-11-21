@@ -93,7 +93,7 @@ export interface IPhysicsScene {
   setContactEventEnabled(enabled: boolean): void;
 
   /**
-   * Collect buffered collision and trigger events for the completed step.
+   * Collect buffered physics events for the completed step.
    * @remarks Call once per step, after reading the new poses from physics.
    * @returns Borrowed event records for immediate dispatch
    */

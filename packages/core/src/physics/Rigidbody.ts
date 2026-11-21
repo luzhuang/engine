@@ -51,6 +51,8 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   _index = -1;
 
   @ignoreClone
+  private _sleepEventId = 0;
+  @ignoreClone
   private _massChanged = false;
   @ignoreClone
   private _nativeActor: IDynamicCollider | null = null;
@@ -443,6 +445,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
       this._simulationEnabled = value;
       this._nativeActor?.setSimulationEnabled(value);
       this._resetInterpolation();
+      this._syncSleepEventRegistration();
       const joints = this._joints;
       if (this._index !== -1 && joints) {
         for (const joint of joints) joint._wakeOtherBody(this);
@@ -744,6 +747,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     const actor = this._getNativeActor();
     if (this._registeredScene !== scene || this._index !== -1) return;
     scene.physics._addRigidbody(this, actor);
+    this._syncSleepEventRegistration();
     this._syncJoints();
     this._markCollidersDirty();
   }
@@ -753,6 +757,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    */
   override _onDisableInScene(scene: Scene): void {
     this._resetInterpolation();
+    this._setSleepEventRegistration(scene, false);
     this._syncJoints();
     const colliders = this._attachedColliders;
     for (let i = colliders.length - 1; i >= 0; i--) {
@@ -764,6 +769,38 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
       }
     }
     scene.physics._removeRigidbody(this);
+  }
+
+  /** @internal Reconcile native sleep notifications with the active observers on this Entity. */
+  _syncSleepEventRegistration(): void {
+    const scene = this._registeredScene;
+    if (!scene || this._index === -1) return;
+
+    if (this._simulationEnabled) {
+      const scripts = this.entity._scripts;
+      for (let i = 0, count = scripts.length; i < count; i++) {
+        const script = scripts.get(i);
+        if (script?.onSleep || script?.onWake) {
+          this._setSleepEventRegistration(scene, true);
+          return;
+        }
+      }
+    }
+    this._setSleepEventRegistration(scene, false);
+  }
+
+  private _setSleepEventRegistration(scene: Scene, enabled: boolean): void {
+    const id = this._sleepEventId;
+    if (enabled === (id !== 0)) return;
+
+    const physics = scene.physics;
+    if (enabled) {
+      this._sleepEventId = physics._registerEventTarget(this);
+    } else {
+      physics._unregisterEventTarget(id);
+      this._sleepEventId = 0;
+    }
+    this._nativeActor!.setSleepEventId(this._sleepEventId);
   }
 
   /** @internal */
