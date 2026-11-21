@@ -1,5 +1,5 @@
 import { IDynamicCollider } from "@galacean/engine-design";
-import { MathUtil, Quaternion, Vector3 } from "@galacean/engine-math";
+import { MathUtil, Matrix, Quaternion, Vector3 } from "@galacean/engine-math";
 import { ignoreClone } from "../clone/CloneDecorators";
 import type { ICloneHook } from "../clone/ICloneHook";
 import { Component } from "../Component";
@@ -65,6 +65,8 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   private _nativePosition: Vector3;
   @ignoreClone
   private _nativeRotation: Quaternion;
+  @ignoreClone
+  private _renderPose?: RigidbodyRenderPose;
 
   private _linearDamping = 0;
   private _angularDamping = 0.05;
@@ -89,6 +91,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   private _isKinematic = false;
   private _constraints: RigidbodyConstraints = 0;
   private _useCCD = false;
+  private _interpolation = false;
   private _sleepThreshold = 5e-3;
   private _automaticCenterOfMass = true;
   private _automaticInertiaTensor = true;
@@ -474,6 +477,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
       this._simulationEnabled = value;
       if (!value) this._cancelPendingSleep();
       this._nativeActor?.setSimulationEnabled(value);
+      this._resetInterpolation();
       this._syncSleepEventRegistration();
       const joints = this._joints;
       if (this._index !== -1 && joints) {
@@ -540,6 +544,24 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     if (this._useCCD !== value) {
       this._useCCD = value;
       this._nativeActor?.setMotionState(this._isKinematic, value);
+    }
+  }
+
+  /**
+   * Smooths rendering between automatic physics steps by displaying the Rigidbody one step behind.
+   * @remarks The Entity's Transform and physics queries use the current pose. Direct Transform edits take effect
+   * immediately. Use {@link move} to interpolate the motion of a kinematic Rigidbody.
+   * @defaultValue false
+   */
+  get interpolation(): boolean {
+    return this._interpolation;
+  }
+
+  set interpolation(value: boolean) {
+    if (this._interpolation !== value) {
+      this._interpolation = value;
+      if (this._index !== -1) this._registeredScene?.physics._setInterpolation(this, value);
+      this._resetInterpolation();
     }
   }
 
@@ -790,6 +812,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @internal
    */
   override _onDisableInScene(scene: Scene): void {
+    this._resetInterpolation();
     if (this._sleepPending) scene.physics._scheduleSleep(this, false);
     this._setSleepEventRegistration(scene, false);
     this._syncJoints();
@@ -965,6 +988,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
       const nativePosition = this._nativePosition;
       const nativeRotation = this._nativeRotation;
       if (Collider._differsF32(position, nativePosition) || Collider._rotationDiffersF32(rotation, nativeRotation)) {
+        this._resetInterpolation();
         nativePosition.copyFrom(position);
         nativeRotation.copyFrom(rotation);
         actor.setWorldTransform(position, rotation);
@@ -976,8 +1000,20 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @internal
    * Write the simulated pose back to the Entity.
    */
-  _writeBack(position: Vector3, rotation: Quaternion): void {
+  _writeBack(position: Vector3, rotation: Quaternion, automatic: boolean): void {
     if (!this._simulationEnabled) return;
+    const nativePosition = this._nativePosition;
+    const nativeRotation = this._nativeRotation;
+    const renderPose =
+      this._interpolation && automatic ? (this._renderPose ||= new RigidbodyRenderPose()) : this._renderPose;
+    if (renderPose) {
+      renderPose.hasSample = this._interpolation && automatic;
+      if (renderPose.hasSample) {
+        renderPose.previousPosition.copyFrom(nativePosition);
+        renderPose.previousRotation.copyFrom(nativeRotation);
+        renderPose.fraction = -1;
+      }
+    }
     this._nativeActor!.getWorldTransform(position, rotation);
     const transform = this.entity.transform;
     const worldPosition = transform.worldPosition;
@@ -989,8 +1025,38 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     if (rotationChanged) transform.worldRotationQuaternion = rotation;
 
     // A constrained Transform can change position while resolving a rotation write.
-    this._nativePosition.copyFrom(positionChanged || rotationChanged ? transform.worldPosition : worldPosition);
-    this._nativeRotation.copyFrom(rotationChanged ? transform.worldRotationQuaternion : worldRotation);
+    nativePosition.copyFrom(positionChanged || rotationChanged ? transform.worldPosition : worldPosition);
+    nativeRotation.copyFrom(rotationChanged ? transform.worldRotationQuaternion : worldRotation);
+  }
+
+  /** @internal */
+  _resetInterpolation(): void {
+    if (this._renderPose) this._renderPose.hasSample = false;
+  }
+
+  /** @internal */
+  _getRenderPose(
+    fraction: number
+  ): Pick<RigidbodyRenderPose, "rotation" | "transformPoint" | "transformMatrix"> | undefined {
+    const pose = this._renderPose;
+    if (!pose?.hasSample) return;
+
+    const position = this._nativePosition;
+    const rotation = this._nativeRotation;
+    if (Vector3.equals(pose.previousPosition, position) && Quaternion.equals(pose.previousRotation, rotation)) return;
+
+    const transform = this.entity.transform;
+    if (
+      Collider._differsF32(transform.worldPosition, position) ||
+      Collider._rotationDiffersF32(transform.worldRotationQuaternion, rotation)
+    ) {
+      return;
+    }
+
+    if (pose.fraction !== fraction) {
+      pose.update(position, rotation, fraction);
+    }
+    return pose;
   }
 
   /**
@@ -1170,6 +1236,53 @@ export enum ForceMode {
   VelocityChange = 2,
   /** Acceleration multiplied by the timestep. */
   Acceleration = 3
+}
+
+/** @internal */
+class RigidbodyRenderPose {
+  private static readonly _inverseRotation = new Quaternion();
+  private static readonly _tempPosition = new Vector3();
+
+  readonly previousPosition = new Vector3();
+  readonly previousRotation = new Quaternion();
+  readonly rotation = new Quaternion();
+  fraction = -1;
+  hasSample = false;
+
+  private readonly _basis = new Matrix();
+  private readonly _offset = new Vector3();
+
+  update(position: Vector3, rotation: Quaternion, fraction: number): void {
+    this.fraction = fraction;
+    const correction = this.rotation;
+    Quaternion.slerp(this.previousRotation, rotation, fraction, correction);
+    const inverse = RigidbodyRenderPose._inverseRotation;
+    Quaternion.conjugate(rotation, inverse);
+    Quaternion.multiply(correction, inverse, correction);
+    Quaternion.normalize(correction, correction);
+    Matrix.rotationQuaternion(correction, this._basis);
+    const rotated = RigidbodyRenderPose._tempPosition;
+    Vector3.transformNormal(position, this._basis, rotated);
+    Vector3.lerp(this.previousPosition, position, fraction, this._offset);
+    this._offset.subtract(rotated);
+  }
+
+  transformPoint(point: Vector3, out: Vector3): Vector3 {
+    Vector3.transformNormal(point, this._basis, out);
+    return out.add(this._offset);
+  }
+
+  transformMatrix(matrix: Matrix, out: Matrix): Matrix {
+    const position = matrix.getTranslation(RigidbodyRenderPose._tempPosition);
+    this.transformPoint(position, position);
+    Matrix.multiply(this._basis, matrix, out);
+    // Apply the translation before rounding to Float32 so rotation cannot shift a distant pivot.
+    const elements = out.elements;
+    elements[12] = position.x;
+    elements[13] = position.y;
+    elements[14] = position.z;
+    return out;
+  }
 }
 
 /**

@@ -80,7 +80,7 @@ export class Sky {
       return;
     }
 
-    const { engine, scene, aspectRatio, fieldOfView, viewMatrix, shaderData: cameraShaderData } = context.camera;
+    const { engine, scene, aspectRatio, fieldOfView, shaderData: cameraShaderData } = context.camera;
     const sceneData = scene!.shaderData;
 
     const { _viewProjMatrix: viewProjMatrix, _projectionMatrix: projectionMatrix } = Sky;
@@ -88,7 +88,7 @@ export class Sky {
     const { shaderData: materialShaderData, shader } = material;
 
     // no-scale view matrix
-    viewProjMatrix.copyFrom(viewMatrix);
+    viewProjMatrix.copyFrom(context.viewMatrix);
     const e = viewProjMatrix.elements;
     e[12] = e[13] = e[14] = 0;
 

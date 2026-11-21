@@ -36,8 +36,18 @@ export class PhysicsScene {
   private _scene: Scene;
   private _restTime: number = 0;
   private _fixedTimeStep: number = 1 / 60;
+  private _interpolationFraction = 0;
+
+  /**
+   * The blend weight of the current fixed pose when rendering interpolated bodies.
+   * @remarks Zero selects the previous pose. The blend weight updates once per Engine update.
+   */
+  get interpolationFraction(): number {
+    return this._interpolationFraction;
+  }
 
   private _bodies = new DisorderedArray<Rigidbody>();
+  private _interpolatedBodies?: Set<Rigidbody>;
   private _bodyOrderDirty = false;
   private _dirtyBodies: Rigidbody[] = [];
   private _dirtyColliders: Collider[] = [];
@@ -684,6 +694,30 @@ export class PhysicsScene {
   }
 
   /**
+   * @internal
+   */
+  _setInterpolation(body: Rigidbody, enabled: boolean): void {
+    if (enabled) (this._interpolatedBodies ||= new Set()).add(body);
+    else this._interpolatedBodies?.delete(body);
+  }
+
+  /** @internal */
+  _getRenderPose(entity: Entity): ReturnType<Rigidbody["_getRenderPose"]> {
+    return this._getInterpolatedBody(entity)?._getRenderPose(this.interpolationFraction);
+  }
+
+  /** @internal */
+  _getInterpolatedBody(entity: Entity): Rigidbody | undefined {
+    const bodies = this._interpolatedBodies;
+    if (!bodies?.size) return;
+
+    for (let current: Entity | null = entity; current; current = current.parent) {
+      const body = current.getComponent(Rigidbody);
+      if (body && body._index !== -1) return bodies.has(body) ? body : undefined;
+    }
+  }
+
+  /**
    * Call on every frame to update pose of objects.
    * @internal
    */
@@ -694,6 +728,7 @@ export class PhysicsScene {
     const simulateTime = this._restTime + deltaTime;
     const step = Math.floor(simulateTime / fixedTimeStep);
     this._restTime = simulateTime - step * fixedTimeStep;
+    this._interpolationFraction = this._restTime / fixedTimeStep;
     for (let i = 0; i < step; i++) {
       const scene = this._scene;
       componentsManager.callScriptOnPhysicsUpdate();
@@ -719,7 +754,7 @@ export class PhysicsScene {
         try {
           const [position, rotation] = pose;
           for (let j = 0; j < count; j++) {
-            elements[j]?._writeBack(position, rotation);
+            elements[j]?._writeBack(position, rotation, true);
           }
         } finally {
           bodies._endLoop(PhysicsScene._bodyIndexSetter);
@@ -783,6 +818,7 @@ export class PhysicsScene {
     const bodies = this._bodies;
     body._index = bodies.length;
     bodies.add(body);
+    if (body.interpolation) this._setInterpolation(body, true);
     this._bodyOrderDirty = true;
     PhysicsScene._addDirty(this._dirtyBodies, body);
     body._markMassDirty();
@@ -815,6 +851,7 @@ export class PhysicsScene {
       this._bodyOrderDirty = true;
     }
     body._index = -1;
+    this._interpolatedBodies?.delete(body);
     this._nativePhysicsScene.removeCollider(body._getNativeActor());
   }
 

@@ -210,6 +210,7 @@ export class Text extends UIRenderer implements ITextRenderer {
    * The bounding volume of the TextRenderer.
    */
   override get bounds(): BoundingBox {
+    this._syncRenderTransform();
     if (this._isTextNoVisible()) {
       if (this._isContainDirtyFlag(RendererUpdateFlags.WorldVolume)) {
         const localBounds = this._localBounds;
@@ -300,7 +301,7 @@ export class Text extends UIRenderer implements ITextRenderer {
     const { x: pivotX, y: pivotY } = transform.pivot;
     worldBounds.min.set(-width * pivotX, -height * pivotY, 0);
     worldBounds.max.set(width * (1 - pivotX), height * (1 - pivotY), 0);
-    BoundingBox.transform(worldBounds, this._transformEntity!.transform.worldMatrix, worldBounds);
+    BoundingBox.transform(worldBounds, this._getRenderWorldMatrix(), worldBounds);
   }
 
   protected override _render(context): void {
@@ -357,7 +358,7 @@ export class Text extends UIRenderer implements ITextRenderer {
   }
 
   private _updatePosition(): void {
-    const e = this._transformEntity!.transform.worldMatrix.elements;
+    const e = this._getRenderWorldMatrix().elements;
 
     // prettier-ignore
     const e0 = e[0], e1 = e[1], e2 = e[2],

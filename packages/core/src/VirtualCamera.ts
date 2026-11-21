@@ -17,7 +17,6 @@ export class VirtualCamera extends DataObject {
   projectionMatrix: Matrix = new Matrix();
   @ignoreClone
   viewProjectionMatrix: Matrix = new Matrix();
-  /** Only orth mode use. */
   @ignoreClone
   forward: Vector3 = new Vector3();
 }

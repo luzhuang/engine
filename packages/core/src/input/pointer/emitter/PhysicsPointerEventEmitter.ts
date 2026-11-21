@@ -28,7 +28,7 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
       for (let j = cameras.length - 1; j >= 0; j--) {
         const camera = cameras.get(j);
         if (camera.renderTarget) continue;
-        const { pixelViewport } = camera;
+        const { pixelViewport, cullingMask, farClipPlane, clearFlags } = camera._getPointerView();
         if (
           x < pixelViewport.x ||
           y < pixelViewport.y ||
@@ -37,12 +37,12 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
         ) {
           continue;
         }
-        camera.screenPointToRay(pointer.position, ray);
-        if (scenePhysics.raycast(ray, camera.farClipPlane, camera.cullingMask, <HitResult>hitResult)) {
+        camera._screenPointToRenderRay(position, ray);
+        if (scenePhysics.raycast(ray, farClipPlane, cullingMask, <HitResult>hitResult)) {
           this._updateRaycast(hitResult.entity, pointer);
           return;
         }
-        if (camera.clearFlags & CameraClearFlags.Color) {
+        if (clearFlags & CameraClearFlags.Color) {
           this._updateRaycast(null, pointer);
           return;
         }

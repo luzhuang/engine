@@ -312,7 +312,7 @@ export class SpriteRenderer extends Renderer implements ISpriteRenderer {
     if (sprite) {
       this._assembler.updatePositions(
         this,
-        this._transformEntity!.transform.worldMatrix,
+        this._getRenderWorldMatrix(),
         this.width,
         this.height,
         sprite.pivot,
@@ -343,15 +343,7 @@ export class SpriteRenderer extends Renderer implements ISpriteRenderer {
 
     // Update position
     if (this._dirtyUpdateFlag & RendererUpdateFlags.WorldVolume) {
-      this._assembler.updatePositions(
-        this,
-        this._transformEntity!.transform.worldMatrix,
-        this.width,
-        this.height,
-        sprite.pivot,
-        this._flipX,
-        this._flipY
-      );
+      this._updateBounds(this._bounds);
       this._dirtyUpdateFlag &= ~RendererUpdateFlags.WorldVolume;
     }
 

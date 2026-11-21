@@ -131,6 +131,12 @@ export class UIRenderer extends Renderer implements IGraphics {
     this._updateWorldSpaceTransformShaderData(context, onlyMVP);
   }
 
+  /** @internal */
+  override _getRenderWorldMatrix(): Matrix {
+    const { transform } = this._transformEntity!;
+    return this._getRootCanvas()?._getRenderWorldMatrix(transform) ?? transform.worldMatrix;
+  }
+
   /**
    * @internal
    */
@@ -140,6 +146,7 @@ export class UIRenderer extends Renderer implements IGraphics {
       this._update(context);
     }
 
+    this._syncRenderTransform();
     this._render(context);
 
     // union camera global macro and renderer macro.
@@ -244,16 +251,18 @@ export class UIRenderer extends Renderer implements IGraphics {
   /**
    * @internal
    */
-  _raycast(ray: Ray, out: UIHitResult, distance: number): boolean {
+  _raycast(ray: Ray, out: UIHitResult, distance: number, useRenderMatrix: boolean): boolean {
     const plane = UIRenderer._tempPlane;
-    const transform = <UITransform>this._transformEntity!.transform;
-    const normal = plane.normal.copyFrom(transform.worldForward);
-    plane.distance = -Vector3.dot(normal, transform.worldPosition);
+    const { transform } = this._transformEntity!;
+    const worldMatrix = useRenderMatrix ? transform._getRenderWorldMatrix() : transform.worldMatrix;
+    const e = worldMatrix.elements;
+    const normal = plane.normal.set(-e[8], -e[9], -e[10]).normalize();
+    plane.distance = -(normal.x * e[12] + normal.y * e[13] + normal.z * e[14]);
     const curDistance = ray.intersectPlane(plane);
     if (curDistance >= 0 && curDistance < distance) {
       const hitPointWorld = ray.getPoint(curDistance, UIRenderer._tempVec30);
       const worldMatrixInv = UIRenderer._tempMat;
-      Matrix.invert(transform.worldMatrix, worldMatrixInv);
+      Matrix.invert(worldMatrix, worldMatrixInv);
       const localPosition = UIRenderer._tempVec31;
       Vector3.transformCoordinate(hitPointWorld, worldMatrixInv, localPosition);
       if (this._hitTest(localPosition)) {

@@ -14,6 +14,7 @@ import {
   Matrix,
   Ray,
   RenderElement,
+  Transform,
   Vector2,
   Vector3,
   dependentComponents,
@@ -43,6 +44,7 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
   private static _tempGroupAbleList: IGroupAble[] = [];
   private static _tempVec3: Vector3 = new Vector3();
   private static _tempMat: Matrix = new Matrix();
+  private static _renderMatrix: Matrix;
 
   /** @internal */
   @ignoreClone
@@ -258,12 +260,13 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
    */
   _raycast(ray: Ray, out: UIHitResult, distance: number, cullingMask: Layer): boolean {
     const renderers = this._getRenderers();
+    const useRenderMatrix = this._realRenderMode === CanvasRenderMode.WorldSpace;
     for (let i = renderers.length - 1; i >= 0; i--) {
       const element = renderers[i];
       if (
         (cullingMask & element.entity.layer) !== 0 &&
         element.raycastEnabled &&
-        element._raycast(ray, out, distance)
+        element._raycast(ray, out, distance, useRenderMatrix)
       ) {
         return true;
       }
@@ -303,6 +306,23 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
     const assignedCamera = this._camera;
     // @ts-ignore
     return !assignedCamera || !assignedCamera._phasedActiveInScene || assignedCamera === camera;
+  }
+
+  /**
+   * @internal
+   * The screen-space camera matrix is borrowed until the next matrix lookup.
+   */
+  _getRenderWorldMatrix(transform: Transform): Matrix {
+    if (this._realRenderMode === CanvasRenderMode.WorldSpace) return transform._getRenderWorldMatrix();
+
+    const worldMatrix = transform.worldMatrix;
+    if (this._realRenderMode === CanvasRenderMode.ScreenSpaceCamera) {
+      const pose = this._camera._getRenderPose();
+      if (pose) {
+        return pose.transformMatrix(worldMatrix, (UICanvas._renderMatrix ||= new Matrix()));
+      }
+    }
+    return worldMatrix;
   }
 
   /**
@@ -347,7 +367,7 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
 
     const batchedRenderElements = this._batchedRenderElements;
     batchedRenderElements.length = 0;
-    UIBatchSorter.sort(renderElements, this.entity.transform.worldMatrix);
+    UIBatchSorter.sort(renderElements, this._getRenderWorldMatrix(this.entity.transform));
     (engine as any)._batcherManager.batch(renderElements, batchedRenderElements);
     for (let i = 0, n = batchedRenderElements.length; i < n; i++) {
       batchedRenderElements[i].subDistancePriority = i;
@@ -647,13 +667,15 @@ export class UICanvas extends Component implements IElement, ICloneHook<UICanvas
   }
 
   private _getCenter(): Vector3 {
-    if (this._centerDirtyFlag.flag) {
+    const uiTransform = <UITransform>this.entity.transform;
+    const worldMatrix = uiTransform._getRenderWorldMatrix();
+    const interpolated = worldMatrix !== uiTransform.worldMatrix;
+    if (this._centerDirtyFlag.flag || interpolated) {
       const center = this._center;
-      const uiTransform = <UITransform>this.entity.transform;
       const { pivot, size } = uiTransform;
       center.set((0.5 - pivot.x) * size.x, (0.5 - pivot.y) * size.y, 0);
-      Vector3.transformCoordinate(center, uiTransform.worldMatrix, center);
-      this._centerDirtyFlag.flag = false;
+      Vector3.transformCoordinate(center, worldMatrix, center);
+      this._centerDirtyFlag.flag = interpolated;
     }
     return this._center;
   }

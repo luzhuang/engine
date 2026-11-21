@@ -73,7 +73,12 @@ export class SpotLight extends Light {
     const distanceStart = lightIndex;
     const penumbraCosStart = lightIndex;
     const angleCosStart = lightIndex;
-    const { color, position, direction } = this;
+    const color = this.color;
+    const { transform } = this.entity;
+    const matrix = transform._getRenderWorldMatrix();
+    const interpolated = matrix !== transform.worldMatrix;
+    const position = interpolated ? matrix.getTranslation((Light._tempPosition ||= new Vector3())) : this.position;
+    const direction = interpolated ? Light._matrixForward(matrix.elements) : this.direction;
 
     const cullingMask = this.cullingMask;
     data.cullingMask[cullingMaskStart] = cullingMask & 65535;

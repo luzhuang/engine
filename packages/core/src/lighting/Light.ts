@@ -1,4 +1,4 @@
-import { Color, MathUtil, Matrix } from "@galacean/engine-math";
+import { Color, MathUtil, Matrix, Vector3 } from "@galacean/engine-math";
 import { Component } from "../Component";
 import { Layer } from "../Layer";
 import { ignoreClone } from "../clone/CloneDecorators";
@@ -8,6 +8,9 @@ import { ShadowType } from "../shadow";
  * Light base class.
  */
 export abstract class Light extends Component {
+  protected static _tempPosition: Vector3;
+  private static _tempDirection: Vector3;
+
   /**
    * Culling mask - which layers the light affect.
    * @remarks Support bit manipulation, corresponding to `Layer`.
@@ -76,5 +79,12 @@ export abstract class Light extends Component {
     if (!this._inverseViewMat) this._inverseViewMat = new Matrix();
     Matrix.invert(this.viewMatrix, this._inverseViewMat);
     return this._inverseViewMat;
+  }
+
+  protected static _matrixForward(
+    elements: Float32Array,
+    out: Vector3 = (Light._tempDirection ||= new Vector3())
+  ): Vector3 {
+    return out.set(-elements[8], -elements[9], -elements[10]).normalize();
   }
 }
