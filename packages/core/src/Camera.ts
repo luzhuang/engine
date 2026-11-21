@@ -34,6 +34,16 @@ class MathTemp {
   static tempVec2 = new Vector2();
 }
 
+class PresentedCameraView {
+  readonly viewProjection = new Matrix();
+  readonly pixelViewport = new Rect();
+  cullingMask: Layer;
+  farClipPlane: number;
+  clearFlags: CameraClearFlags;
+  active = false;
+  inverse = false;
+}
+
 /**
  * Camera component, as the entrance to the three-dimensional world.
  * @decorator `@dependentComponents(Transform, DependentMode.CheckOnly)`
@@ -155,6 +165,14 @@ export class Camera extends Component {
   private _depthBufferParams: Vector4 = new Vector4();
   private _viewport: Vector4 = new Vector4(0, 0, 1, 1);
   private _pixelViewport: Rect = new Rect(0, 0, 0, 0);
+  @ignoreClone
+  private _viewMatrix = this._virtualCamera.viewMatrix;
+  @ignoreClone
+  private _interpolatedViewMatrix?: Matrix;
+  @ignoreClone
+  private _interpolatedUp?: Vector3;
+  @ignoreClone
+  private _presentedView?: PresentedCameraView;
   private _inverseProjectionMatrix: Matrix = new Matrix();
   private _invViewProjMat: Matrix = new Matrix();
 
@@ -310,10 +328,11 @@ export class Camera extends Component {
   }
 
   /**
-   * View matrix.
+   * View matrix at the current Transform pose, or the custom view matrix when set.
+   * @remarks Physics interpolation affects the view used for rendering.
    */
   get viewMatrix(): Readonly<Matrix> {
-    const viewMatrix = this._virtualCamera.viewMatrix;
+    const viewMatrix = this._viewMatrix;
 
     if (!this._isViewMatrixDirty.flag || this._isCustomViewMatrix) {
       return viewMatrix;
@@ -328,7 +347,7 @@ export class Camera extends Component {
   }
 
   set viewMatrix(value: Matrix) {
-    this._virtualCamera.viewMatrix.copyFrom(value);
+    this._viewMatrix.copyFrom(value);
     this._isCustomViewMatrix = true;
     this._viewMatrixChange();
   }
@@ -521,20 +540,7 @@ export class Camera extends Component {
    * @returns Ray
    */
   viewportPointToRay(point: Vector2, out: Ray): Ray {
-    const invViewProjMat = this._getInvViewProjMat();
-    // Use the intersection of the near clipping plane as the origin point.
-    const origin = this._innerViewportToWorldPoint(point.x, point.y, 0.0, invViewProjMat, out.origin);
-    // Use the intersection of the far clipping plane as the origin point.
-    const direction = this._innerViewportToWorldPoint(
-      point.x,
-      point.y,
-      1 - MathUtil.zeroTolerance,
-      invViewProjMat,
-      out.direction
-    );
-    Vector3.subtract(direction, origin, direction);
-    direction.normalize();
-    return out;
+    return this._viewportPointToRay(point, this._getInvViewProjMat(), out);
   }
 
   /**
@@ -616,13 +622,33 @@ export class Camera extends Component {
     if (!engine._hardwareRenderer.supportsRendering) return;
     const context = engine._renderContext;
     const virtualCamera = this._virtualCamera;
+    const entity = this._entity;
+    const scene = this.scene!;
+    const transform = entity.transform;
+    const physics = scene.physics;
+    const interpolationBody =
+      cubeFace === undefined && !this._isCustomViewMatrix ? physics._getInterpolatedBody(entity) : undefined;
+    const pose = interpolationBody?._getRenderPose(physics.interpolationFraction);
+    const renderMatrix = pose ? transform._getRenderWorldMatrix(pose) : transform.worldMatrix;
+    let up: Vector3;
 
-    const transform = this._entity.transform;
-    Matrix.multiply(this.projectionMatrix, this.viewMatrix, virtualCamera.viewProjectionMatrix);
-    virtualCamera.position.copyFrom(transform.worldPosition);
-    if (virtualCamera.isOrthographic) {
+    this._frustumChangeFlag.flag ||= !!pose || virtualCamera.viewMatrix !== this._viewMatrix;
+    if (pose) {
+      const viewMatrix = (this._interpolatedViewMatrix ||= new Matrix());
+      renderMatrix.getTranslation(virtualCamera.position);
+      Matrix.rotationTranslation(transform._getRenderWorldRotationQuaternion(pose), virtualCamera.position, viewMatrix);
+      virtualCamera.viewMatrix = viewMatrix.invert();
+
+      const e = renderMatrix.elements;
+      virtualCamera.forward.set(-e[8], -e[9], -e[10]).normalize();
+      up = (this._interpolatedUp ||= new Vector3()).set(e[4], e[5], e[6]).normalize();
+    } else {
+      virtualCamera.viewMatrix = this.viewMatrix;
+      virtualCamera.position.copyFrom(transform.worldPosition);
       virtualCamera.forward.copyFrom(transform.worldForward);
+      up = transform.worldUp;
     }
+    Matrix.multiply(this.projectionMatrix, virtualCamera.viewMatrix, virtualCamera.viewProjectionMatrix);
 
     context.camera = this;
     context.virtualCamera = virtualCamera;
@@ -636,11 +662,11 @@ export class Camera extends Component {
       this._frustumChangeFlag.flag = false;
     }
 
-    this._updateShaderData();
+    this._updateShaderData(renderMatrix, up);
 
     // union scene and camera macro.
     ShaderMacroCollection.unionCollection(
-      this.scene!.shaderData._macroCollection,
+      scene.shaderData._macroCollection,
       this.shaderData._macroCollection,
       this._globalShaderMacro
     );
@@ -649,7 +675,20 @@ export class Camera extends Component {
     if (this._cameraType !== CameraType.Normal && !this._renderTarget) {
       ignoreClearFlags = engine.xrManager._getCameraIgnoreClearFlags(this._cameraType);
     }
+    const presentsOnScreen = !this._renderTarget && cubeFace === undefined;
+    if (presentsOnScreen && this._presentedView) this._presentedView.active = false;
+    const presentedView =
+      presentsOnScreen && interpolationBody ? (this._presentedView ||= new PresentedCameraView()) : undefined;
+    if (presentedView) {
+      presentedView.pixelViewport.copyFrom(this.pixelViewport);
+      presentedView.viewProjection.copyFrom(virtualCamera.viewProjectionMatrix);
+      presentedView.inverse = false;
+      presentedView.cullingMask = this.cullingMask;
+      presentedView.farClipPlane = this.farClipPlane;
+      presentedView.clearFlags = this.clearFlags;
+    }
     this._renderPipeline.render(context, cubeFace, mipLevel, ignoreClearFlags);
+    if (presentedView) presentedView.active = this._phasedActiveInScene;
     engine._renderCount++;
     context.camera = null!;
   }
@@ -712,8 +751,49 @@ export class Camera extends Component {
    * @inheritdoc
    */
   override _onDisableInScene(scene: Scene): void {
+    if (this._presentedView) this._presentedView.active = false;
     scene._componentsManager.removeCamera(this);
     this._dispatchModify(CameraModifyFlags.DisableInScene);
+  }
+
+  /**
+   * Projects a screen point using the last displayed view of a camera with physics interpolation.
+   * @internal
+   */
+  _screenPointToRenderRay(point: Vector2, out: Ray): Ray {
+    const view = this._presentedView;
+    if (!view?.active) return this.screenPointToRay(point, out);
+
+    const matrix = view.viewProjection;
+    if (!view.inverse) {
+      matrix.invert();
+      view.inverse = true;
+    }
+    const viewport = view.pixelViewport;
+    const viewportPoint = MathTemp.tempVec2.set(
+      (point.x - viewport.x) / viewport.width,
+      (point.y - viewport.y) / viewport.height
+    );
+    return this._viewportPointToRay(viewportPoint, matrix, out);
+  }
+
+  /** @internal */
+  _getPointerView(): Pick<Camera, "pixelViewport" | "cullingMask" | "farClipPlane" | "clearFlags"> {
+    const view = this._presentedView;
+    return view?.active ? view : this;
+  }
+
+  /** @internal */
+  _getRenderPosition(out: Vector3): Vector3 {
+    const position = this._entity.transform.worldPosition;
+    const pose = this._getRenderPose();
+    return pose ? pose.transformPoint(position, out) : position;
+  }
+
+  /** @internal */
+  _getRenderPose(): ReturnType<Scene["physics"]["_getRenderPose"]> {
+    const entity = this._entity;
+    return this._isCustomViewMatrix ? undefined : entity.scene?.physics._getRenderPose(entity);
   }
 
   /**
@@ -831,6 +911,10 @@ export class Camera extends Component {
     this._isViewMatrixDirty = null!;
     this._isInvViewProjDirty = null!;
     this._viewport = null!;
+    this._viewMatrix = null!;
+    this._interpolatedViewMatrix = undefined;
+    this._interpolatedUp = undefined;
+    this._presentedView = undefined;
     this._inverseProjectionMatrix = null!;
     this._invViewProjMat = null!;
   }
@@ -879,14 +963,27 @@ export class Camera extends Component {
     return out;
   }
 
-  private _updateShaderData(): void {
+  private _viewportPointToRay(point: Vector2, invViewProjMat: Matrix, out: Ray): Ray {
+    const origin = this._innerViewportToWorldPoint(point.x, point.y, 0, invViewProjMat, out.origin);
+    const direction = this._innerViewportToWorldPoint(
+      point.x,
+      point.y,
+      1 - MathUtil.zeroTolerance,
+      invViewProjMat,
+      out.direction
+    );
+    Vector3.subtract(direction, origin, direction);
+    direction.normalize();
+    return out;
+  }
+
+  private _updateShaderData(worldMatrix: Matrix, up: Vector3): void {
     const shaderData = this.shaderData;
 
-    const transform = this._entity.transform;
-    shaderData.setMatrix(Camera._inverseViewMatrixProperty, transform.worldMatrix);
-    shaderData.setVector3(Camera._cameraPositionProperty, transform.worldPosition);
-    shaderData.setVector3(Camera._cameraForwardProperty, transform.worldForward);
-    shaderData.setVector3(Camera._cameraUpProperty, transform.worldUp);
+    shaderData.setMatrix(Camera._inverseViewMatrixProperty, worldMatrix);
+    shaderData.setVector3(Camera._cameraPositionProperty, this._virtualCamera.position);
+    shaderData.setVector3(Camera._cameraForwardProperty, this._virtualCamera.forward);
+    shaderData.setVector3(Camera._cameraUpProperty, up);
 
     const depthBufferParams = this._depthBufferParams;
     const { farClipPlane } = this;

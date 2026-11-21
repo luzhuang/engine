@@ -320,7 +320,7 @@ export class SpineAnimationRenderer extends Renderer {
    * @internal
    */
   override _updateBounds(worldBounds: BoundingBox): void {
-    BoundingBox.transform(this._localBounds, this.entity.transform.worldMatrix, worldBounds);
+    BoundingBox.transform(this._localBounds, this._getRenderWorldMatrix(), worldBounds);
   }
 
   /**

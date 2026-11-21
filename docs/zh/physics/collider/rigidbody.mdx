@@ -31,6 +31,9 @@ label: Physics
 | [**mass**](/apis/core/#Rigidbody-mass) | 刚体的质量，质量越大物体运动状态越难改变 | 1.0 |
 | [**useGravity**](/apis/core/#Rigidbody-useGravity) | 是否受重力影响 | true |
 | [**isKinematic**](/apis/core/#Rigidbody-isKinematic) | 是否为运动学刚体。物理不会移动运动学刚体，但它可以推动其他物体 | false |
+| [**interpolation**](/apis/core/#Rigidbody-interpolation) | 平滑自动物理步之间的画面运动 | false |
+
+如果能看出刚体在物理步之间跳动，例如相机跟随的角色，可以开启 `interpolation`。画面会延迟一个物理步。脚本和物理查询读取当前位姿，因此快速移动的物体可能画在指针射线能命中碰撞器的位置之后。直接修改 Transform 会瞬移。在 `onPhysicsUpdate` 中用 `move()` 移动运动学刚体，即可平滑其画面运动。
 
 ### 速度设置
 

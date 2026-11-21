@@ -6,11 +6,14 @@ import {
   Pointer,
   PointerEventData,
   PointerEventEmitter,
+  Ray,
   Scene,
+  Vector3,
   registerPointerEventEmitter
 } from "@galacean/engine";
 import { UICanvas } from "..";
 import { UIRenderer } from "../component/UIRenderer";
+import { CanvasRenderMode } from "../enums/CanvasRenderMode";
 import { UIHitResult } from "./UIHitResult";
 
 /**
@@ -24,6 +27,9 @@ export class UIPointerEventEmitter extends PointerEventEmitter {
 
   private static _MAX_PATH_DEPTH = 2048;
   private static _tempSet: Set<number> = new Set();
+  private static _cameraPosition: Vector3;
+  private static _cameraForward: Vector3;
+  private static _interpolatedRay: Ray;
   private static _path: Entity[] = [];
   private static _tempArray0: Entity[] = [];
   private static _tempArray1: Entity[] = [];
@@ -69,11 +75,23 @@ export class UIPointerEventEmitter extends PointerEventEmitter {
         ) {
           continue;
         }
-        camera.screenPointToRay(pointer.position, ray);
+        camera.screenPointToRay(position, ray);
 
         canvasElements = componentsManager._canvases as DisorderedArray<UICanvas>;
         const { isOrthographic, farClipPlane, cullingMask } = camera;
-        const { worldPosition, worldForward } = camera.entity.transform;
+        let { worldPosition, worldForward } = camera.entity.transform;
+        let worldRay = ray;
+        const pose = camera._getRenderPose();
+        if (pose) {
+          const { rotation } = pose;
+          worldRay = UIPointerEventEmitter._interpolatedRay ||= new Ray();
+          pose.transformPoint(ray.origin, worldRay.origin);
+          Vector3.transformByQuat(ray.direction, rotation, worldRay.direction);
+          worldPosition = pose.transformPoint(worldPosition, (UIPointerEventEmitter._cameraPosition ||= new Vector3()));
+          const forward = (UIPointerEventEmitter._cameraForward ||= new Vector3());
+          Vector3.transformByQuat(worldForward, rotation, forward);
+          worldForward = forward;
+        }
         for (let k = 0, n = canvasElements.length; k < n; k++) {
           canvasElements.get(k)._updateSortDistance(isOrthographic, worldPosition, worldForward);
         }
@@ -86,7 +104,9 @@ export class UIPointerEventEmitter extends PointerEventEmitter {
         for (let k = 0, n = canvasElements.length; k < n; k++) {
           const canvas = canvasElements.get(k);
           if (!canvas._canDispatchEvent(camera)) continue;
-          if (canvas._raycast(ray, hitResult, farClipPlane, cullingMask)) {
+          // The camera and its screen-space canvas share a correction, so it cancels for picking.
+          const canvasRay = canvas._realRenderMode === CanvasRenderMode.ScreenSpaceCamera ? ray : worldRay;
+          if (canvas._raycast(canvasRay, hitResult, farClipPlane, cullingMask)) {
             this._updateRaycast(hitResult.component, pointer);
             return;
           }

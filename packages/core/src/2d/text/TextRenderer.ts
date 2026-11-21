@@ -269,6 +269,7 @@ export class TextRenderer extends Renderer implements ITextRenderer {
    * The bounding volume of the TextRenderer.
    */
   override get bounds(): BoundingBox {
+    this._syncRenderTransform();
     if (this._isTextNoVisible()) {
       if (this._isContainDirtyFlag(DirtyFlag.WorldBounds)) {
         const localBounds = this._localBounds;
@@ -377,7 +378,7 @@ export class TextRenderer extends Renderer implements ITextRenderer {
   }
 
   protected override _updateBounds(worldBounds: BoundingBox): void {
-    BoundingBox.transform(this._localBounds, this._entity.transform.worldMatrix, worldBounds);
+    BoundingBox.transform(this._localBounds, this._getRenderWorldMatrix(), worldBounds);
   }
 
   protected override _render(context: RenderContext): void {
@@ -432,8 +433,7 @@ export class TextRenderer extends Renderer implements ITextRenderer {
   }
 
   private _updatePosition(): void {
-    const { transform } = this.entity;
-    const e = transform.worldMatrix.elements;
+    const e = this._getRenderWorldMatrix().elements;
 
     // prettier-ignore
     const e0 = e[0], e1 = e[1], e2 = e[2],

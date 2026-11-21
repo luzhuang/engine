@@ -31,6 +31,9 @@ A Rigidbody ([Rigidbody](/apis/core/#Rigidbody)) puts its Entity under physics c
 | [**mass**](/apis/core/#Rigidbody-mass) | Mass of the Rigidbody. The larger the mass, the harder it is to change the object's motion | 1.0 |
 | [**useGravity**](/apis/core/#Rigidbody-useGravity) | Whether gravity affects the Rigidbody | true |
 | [**isKinematic**](/apis/core/#Rigidbody-isKinematic) | Whether the Rigidbody is kinematic. Physics does not move a kinematic body, but it can push other objects | false |
+| [**interpolation**](/apis/core/#Rigidbody-interpolation) | Smooths visible motion between automatic physics steps | false |
+
+Enable `interpolation` on a moving Rigidbody when you can see the gap between physics steps, such as on a character followed by a camera. It displays the body one physics step behind. Scripts and physics queries read the current pose, so a fast object can be drawn slightly behind the position where a pointer ray hits its collider. Changes to the Transform snap to the new pose. Move kinematic bodies with `move()` during `onPhysicsUpdate` to interpolate their motion.
 
 ### Velocity
 

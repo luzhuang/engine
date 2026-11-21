@@ -41,7 +41,11 @@ export class PointLight extends Light {
     const colorStart = lightIndex * 3;
     const positionStart = lightIndex * 3;
     const distanceStart = lightIndex;
-    const { color, position } = this;
+    const color = this.color;
+    const { transform } = this.entity;
+    const matrix = transform._getRenderWorldMatrix();
+    const position =
+      matrix === transform.worldMatrix ? this.position : matrix.getTranslation((Light._tempPosition ||= new Vector3()));
 
     const cullingMask = this.cullingMask;
     data.cullingMask[cullingMaskStart] = cullingMask & 65535;

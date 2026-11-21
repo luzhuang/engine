@@ -212,7 +212,7 @@ export class ShadowUtils {
     const center = shadowSliceData.splitBoundSphere.center;
     shadowSliceData.splitBoundSphere.radius = radius;
     Vector3.scale(forward, centerZ, center);
-    Vector3.add(camera.entity.transform.worldPosition, center, center);
+    Vector3.add(camera._virtualCamera.position, center, center);
     shadowSliceData.sphereCenterZ = centerZ;
   }
 

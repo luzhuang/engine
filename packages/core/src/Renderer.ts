@@ -76,6 +76,8 @@ export class Renderer extends Component implements ICloneHook<Renderer> {
   @ignoreClone
   private _normalMatrix: Matrix = new Matrix();
   @ignoreClone
+  private _interpolatedBoundsFrame = -1;
+  @ignoreClone
   private _materialsInstanced: boolean[] = [];
   private _priority: number = 0;
   private _receiveShadows: boolean = true;
@@ -134,6 +136,7 @@ export class Renderer extends Component implements ICloneHook<Renderer> {
    * The world bounding volume of the renderer.
    */
   get bounds(): BoundingBox {
+    this._syncRenderTransform();
     if (this._dirtyUpdateFlag & RendererUpdateFlags.WorldVolume) {
       this._updateBounds(this._bounds);
       this._dirtyUpdateFlag &= ~RendererUpdateFlags.WorldVolume;
@@ -387,11 +390,16 @@ export class Renderer extends Component implements ICloneHook<Renderer> {
     this._rendererLayer = null!;
   }
 
+  /** @internal */
+  _getRenderWorldMatrix(): Matrix {
+    return this._transformEntity!.transform._getRenderWorldMatrix();
+  }
+
   /**
    * @internal
    */
   _updateTransformShaderData(context: RenderContext, onlyMVP: boolean): void {
-    const worldMatrix = this._transformEntity!.transform.worldMatrix;
+    const worldMatrix = this._getRenderWorldMatrix();
     const { shaderData } = this;
     if (onlyMVP) {
       const mvpMatrix = this._mvpMatrix;
@@ -462,6 +470,15 @@ export class Renderer extends Component implements ICloneHook<Renderer> {
       preEntity?._updateFlagManager.removeListener(this._onTransformChanged);
       entity?._updateFlagManager.addListener(this._onTransformChanged);
       this._transformEntity = entity;
+    }
+  }
+
+  protected _syncRenderTransform(): void {
+    const transform = this._transformEntity!.transform;
+    const frame = this._getRenderWorldMatrix() === transform.worldMatrix ? -1 : this.engine.time.frameCount;
+    if (frame !== this._interpolatedBoundsFrame) {
+      this._interpolatedBoundsFrame = frame;
+      this._onTransformChanged(TransformModifyFlags.WorldMatrix);
     }
   }
 

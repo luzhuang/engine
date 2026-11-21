@@ -22,6 +22,8 @@ export class Skin extends DataObject {
   private _bones = new Array<Entity>();
   @ignoreClone
   private _updateMark = -1;
+  @ignoreClone
+  private _renderWorldToLocal: Matrix;
 
   /**
    * Root bone.
@@ -73,12 +75,27 @@ export class Skin extends DataObject {
     }
 
     const { bones, inverseBindMatrices: bindMatrices, _skinMatrices: skinMatrices } = this;
-    const worldToLocal = (this.rootBone ?? renderer.entity).getInvModelMatrix();
+    const root = this.rootBone ?? renderer.entity;
+    const rootTransform = root.transform;
+    const rootMatrix = rootTransform._getRenderWorldMatrix();
+    let worldToLocal: Matrix;
+    if (rootMatrix === rootTransform.worldMatrix) {
+      worldToLocal = root.getInvModelMatrix();
+    } else {
+      worldToLocal = this._renderWorldToLocal ||= new Matrix();
+      Matrix.invert(rootMatrix, worldToLocal);
+    }
     for (let i = bones.length - 1; i >= 0; i--) {
       const bone = bones[i];
       const offset = i * 16;
       if (bone) {
-        Utils._floatMatrixMultiply(bone.transform.worldMatrix, bindMatrices[i].elements, 0, skinMatrices, offset);
+        Utils._floatMatrixMultiply(
+          bone.transform._getRenderWorldMatrix(),
+          bindMatrices[i].elements,
+          0,
+          skinMatrices,
+          offset
+        );
       } else {
         skinMatrices.set(bindMatrices[i].elements, offset);
       }

@@ -30,6 +30,8 @@ export class DirectLight extends Light {
 
   @ignoreClone
   private _reverseDirection: Vector3 = new Vector3();
+  @ignoreClone
+  private _interpolatedDirection: Vector3;
 
   /**
    * Get direction.
@@ -46,6 +48,15 @@ export class DirectLight extends Light {
     return this._reverseDirection;
   }
 
+  /** @internal */
+  _getRenderDirection(): Vector3 {
+    const { transform } = this.entity;
+    const matrix = transform._getRenderWorldMatrix();
+    return matrix === transform.worldMatrix
+      ? this.direction
+      : Light._matrixForward(matrix.elements, (this._interpolatedDirection ||= new Vector3()));
+  }
+
   /**
    * @internal
    */
@@ -53,7 +64,8 @@ export class DirectLight extends Light {
     const cullingMaskStart = lightIndex * 2;
     const colorStart = lightIndex * 3;
     const directionStart = lightIndex * 3;
-    const { color, direction } = this;
+    const color = this.color;
+    const direction = this._getRenderDirection();
 
     const cullingMask = this.cullingMask;
     data.cullingMask[cullingMaskStart] = cullingMask & 65535;

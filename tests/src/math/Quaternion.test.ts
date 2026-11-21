@@ -129,6 +129,10 @@ describe("Quaternion test", () => {
 
     Quaternion.slerp(a, b, 0.5, out);
     expect(toString(out)).to.eq("quat(0.75, 0.75, 0.75, 0.5)");
+
+    Quaternion.slerp(new Quaternion(), new Quaternion(0, 0, 1, 0), 0.5, out);
+    expect(out.z).toBeCloseTo(Math.SQRT1_2);
+    expect(out.w).toBeCloseTo(Math.SQRT1_2);
   });
 
   it("static normalize", () => {

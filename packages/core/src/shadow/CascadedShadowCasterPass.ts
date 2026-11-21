@@ -35,7 +35,6 @@ export class CascadedShadowCasterPass extends PipelinePass {
   private static _cascadesSplitDistance: number[] = new Array(CascadedShadowCasterPass._maxCascades + 1);
 
   private static _viewport = new Vector4(0, 0, 1, 1);
-  private static _tempVector = new Vector3();
   private static _tempMatrix0 = new Matrix();
 
   private readonly _camera: Camera;
@@ -127,12 +126,11 @@ export class CascadedShadowCasterPass extends PipelinePass {
     rhi.clearRenderTarget(engine, CameraClearFlags.Depth, null);
 
     // prepare light and camera direction
-    Matrix.rotationQuaternion(light.entity.transform.worldRotationQuaternion, lightWorld);
+    Matrix.rotationQuaternion(light.entity.transform._getRenderWorldRotationQuaternion(), lightWorld);
     lightSide.set(lightWorldE[0], lightWorldE[1], lightWorldE[2]);
     lightUp.set(lightWorldE[4], lightWorldE[5], lightWorldE[6]);
     lightForward.set(-lightWorldE[8], -lightWorldE[9], -lightWorldE[10]);
-    const cameraForward = CascadedShadowCasterPass._tempVector;
-    cameraForward.copyFrom(camera.entity.transform.worldForward);
+    const cameraForward = camera._virtualCamera.forward;
 
     const shadowTileResolution = this._shadowTileResolution;
 

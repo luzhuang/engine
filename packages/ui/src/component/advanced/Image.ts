@@ -156,12 +156,13 @@ export class Image extends UIRenderer implements ISpriteRenderer {
   protected override _updateBounds(worldBounds: BoundingBox): void {
     const sprite = this._sprite;
     const rootCanvas = this._getRootCanvas();
+    const worldMatrix = this._getRenderWorldMatrix();
     if (sprite && rootCanvas) {
       const transform = <UITransform>this._transformEntity!.transform;
       const { size } = transform;
       this._assembler.updatePositions(
         this,
-        transform.worldMatrix,
+        worldMatrix,
         size.x,
         size.y,
         transform.pivot,
@@ -170,9 +171,8 @@ export class Image extends UIRenderer implements ISpriteRenderer {
         rootCanvas.referenceResolutionPerUnit
       );
     } else {
-      const { worldPosition } = this._transformEntity!.transform;
-      worldBounds.min.copyFrom(worldPosition);
-      worldBounds.max.copyFrom(worldPosition);
+      worldMatrix.getTranslation(worldBounds.min);
+      worldBounds.max.copyFrom(worldBounds.min);
     }
   }
 
@@ -202,16 +202,7 @@ export class Image extends UIRenderer implements ISpriteRenderer {
     const canvas = this._getRootCanvas()!;
     // Update position
     if (dirtyUpdateFlag & RendererUpdateFlags.WorldVolume) {
-      this._assembler.updatePositions(
-        this,
-        transform.worldMatrix,
-        width,
-        height,
-        transform.pivot,
-        false,
-        false,
-        canvas.referenceResolutionPerUnit
-      );
+      this._updateBounds(this._bounds);
       dirtyUpdateFlag &= ~RendererUpdateFlags.WorldVolume;
     }
 

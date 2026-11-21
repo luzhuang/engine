@@ -63,15 +63,37 @@ export class PhysicsScene {
   private _scene: Scene;
   private _restTime: number = 0;
   private _fixedTimeStep: number = 1 / 60;
+  private _interpolationFraction = 0;
   private _maxSubSteps = 8;
   private _stepping = false;
+  private _autoSimulation = true;
 
   /**
    * Whether the Engine advances this scene's physics each frame. Defaults to true.
    */
-  autoSimulation = true;
+  get autoSimulation(): boolean {
+    return this._autoSimulation;
+  }
+
+  set autoSimulation(value: boolean) {
+    if (this._autoSimulation === value) return;
+    this._autoSimulation = value;
+    if (!value && this._interpolatedBodies) {
+      for (const body of this._interpolatedBodies) body._resetInterpolation();
+    }
+  }
+
+  /**
+   * The blend weight of the current fixed pose when rendering interpolated bodies.
+   * @remarks Zero selects the previous pose. The blend weight updates once per Engine update.
+   * With manual simulation, this returns one.
+   */
+  get interpolationFraction(): number {
+    return this.autoSimulation ? this._interpolationFraction : 1;
+  }
 
   private _bodies = new DisorderedArray<Rigidbody>();
+  private _interpolatedBodies?: Set<Rigidbody>;
   private _bodyOrderDirty = false;
   private _dirtyBodies: Rigidbody[] = [];
   private _dirtyColliders: Collider[] = [];
@@ -918,9 +940,32 @@ export class PhysicsScene {
     const simulateTime = this._restTime + deltaTime;
     const elapsedSteps = Math.floor(simulateTime / fixedTimeStep);
     this._restTime = simulateTime - elapsedSteps * fixedTimeStep;
+    this._interpolationFraction = this._restTime / fixedTimeStep;
     const steps = Math.min(elapsedSteps, maxSteps);
     for (let i = 0; i < steps && !this._scene.destroyed && this._scene.isActive; i++) {
       this._step(fixedTimeStep, false);
+    }
+  }
+
+  /** @internal */
+  _setInterpolation(body: Rigidbody, enabled: boolean): void {
+    if (enabled) (this._interpolatedBodies ||= new Set()).add(body);
+    else this._interpolatedBodies?.delete(body);
+  }
+
+  /** @internal */
+  _getRenderPose(entity: Entity): ReturnType<Rigidbody["_getRenderPose"]> {
+    return this._getInterpolatedBody(entity)?._getRenderPose(this.interpolationFraction);
+  }
+
+  /** @internal */
+  _getInterpolatedBody(entity: Entity): Rigidbody | undefined {
+    const bodies = this._interpolatedBodies;
+    if (!bodies?.size || !this.autoSimulation || this._stepping) return;
+
+    for (let current: Entity | null = entity; current; current = current.parent) {
+      const body = current.getComponent(Rigidbody);
+      if (body && body._index !== -1) return bodies.has(body) ? body : undefined;
     }
   }
 
@@ -951,7 +996,7 @@ export class PhysicsScene {
         try {
           const [position, rotation] = pose;
           for (let j = 0; j < count; j++) {
-            elements[j]?._writeBack(position, rotation);
+            elements[j]?._writeBack(position, rotation, this._autoSimulation && !startScripts);
           }
         } finally {
           bodies._endLoop(PhysicsScene._bodyIndexSetter);
@@ -1014,6 +1059,7 @@ export class PhysicsScene {
     const bodies = this._bodies;
     body._index = bodies.length;
     bodies.add(body);
+    if (body.interpolation) this._setInterpolation(body, true);
     this._bodyOrderDirty = true;
     PhysicsScene._addDirty(this._dirtyBodies, body);
     body._markMassDirty();
@@ -1046,6 +1092,7 @@ export class PhysicsScene {
       this._bodyOrderDirty = true;
     }
     body._index = -1;
+    this._interpolatedBodies?.delete(body);
     this._nativePhysicsScene.removeCollider(body._getNativeActor());
   }
 

@@ -1,3 +1,4 @@
+import { Vector3 } from "@galacean/engine-math";
 import { Camera } from "../Camera";
 import { PipelineUtils } from "../RenderPipeline/PipelineUtils";
 import { Scene } from "../Scene";
@@ -13,6 +14,7 @@ import { PostProcessEffect } from "./PostProcessEffect";
  */
 export class PostProcessManager {
   private static _tempColliders: Collider[] = [];
+  private static _tempCameraPosition = new Vector3();
 
   /** @internal */
   _uberMaterial: Material;
@@ -61,6 +63,7 @@ export class PostProcessManager {
     this._sortActivePostProcess();
     const activePostProcesses = this._activePostProcesses;
     let physicsSynced = false;
+    let cameraPosition: Vector3;
 
     for (let i = 0, n = activePostProcesses.length; i < n; i++) {
       const postProcess = activePostProcesses[i];
@@ -81,7 +84,7 @@ export class PostProcessManager {
           }
           continue;
         }
-        const cameraPosition = camera.entity.transform.worldPosition;
+        cameraPosition ||= camera._getRenderPosition(PostProcessManager._tempCameraPosition);
         const blendDistance = postProcess.blendDistance;
         let closestDistance = Infinity;
         for (let j = 0; j < count; j++) {

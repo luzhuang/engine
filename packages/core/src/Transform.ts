@@ -4,6 +4,7 @@ import { Component } from "./Component";
 import { Entity } from "./Entity";
 import { ignoreClone } from "./clone/CloneDecorators";
 import type { ICloneHook } from "./clone/ICloneHook";
+import type { PhysicsScene } from "./physics/PhysicsScene";
 
 /**
  * Used to implement transformation related functions.
@@ -52,6 +53,10 @@ export class Transform extends Component implements ICloneHook<Transform> {
   private _worldRight: Vector3 | null = null;
   @ignoreClone
   private _worldUp: Vector3 | null = null;
+  @ignoreClone
+  private _renderWorldMatrix?: Matrix;
+  @ignoreClone
+  private _renderWorldRotationQuaternion?: Quaternion;
 
   @ignoreClone
   protected _isParentDirty: boolean = true;
@@ -617,6 +622,31 @@ export class Transform extends Component implements ICloneHook<Transform> {
     scale.y < 0 && (isInvert = !isInvert);
     scale.z < 0 && (isInvert = !isInvert);
     return isInvert;
+  }
+
+  /** @internal */
+  _getRenderWorldMatrix(pose: ReturnType<PhysicsScene["_getRenderPose"]> = this._getRenderPose()): Matrix {
+    const matrix = this.worldMatrix;
+    if (!pose) return matrix;
+
+    return pose.transformMatrix(matrix, (this._renderWorldMatrix ||= new Matrix()));
+  }
+
+  /** @internal */
+  _getRenderWorldRotationQuaternion(
+    pose: ReturnType<PhysicsScene["_getRenderPose"]> = this._getRenderPose()
+  ): Quaternion {
+    const rotation = this.worldRotationQuaternion;
+    if (!pose) return rotation;
+
+    const result = (this._renderWorldRotationQuaternion ||= new Quaternion());
+    Quaternion.multiply(pose.rotation, rotation, result);
+    return result;
+  }
+
+  private _getRenderPose(): ReturnType<PhysicsScene["_getRenderPose"]> {
+    const entity = this._entity;
+    return entity.scene?.physics._getRenderPose(entity);
   }
 
   /**

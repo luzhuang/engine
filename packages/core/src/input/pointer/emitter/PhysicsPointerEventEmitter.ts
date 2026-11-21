@@ -30,7 +30,7 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
       for (let j = cameras.length - 1; j >= 0; j--) {
         const camera = cameras.get(j);
         if (camera.renderTarget) continue;
-        const { pixelViewport } = camera;
+        const { pixelViewport, cullingMask, farClipPlane, clearFlags } = camera._getPointerView();
         if (
           x < pixelViewport.x ||
           y < pixelViewport.y ||
@@ -39,15 +39,14 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
         ) {
           continue;
         }
-        camera.screenPointToRay(pointer.position, ray);
-        const cullingMask = camera.cullingMask;
-        if (scenePhysics.raycast(ray, camera.farClipPlane, this._queryFilter, hitResult)) {
+        camera._screenPointToRenderRay(position, ray);
+        if (scenePhysics.raycast(ray, farClipPlane, this._queryFilter, hitResult)) {
           let closest: HitResult | undefined;
           if (hitResult.entity!.layer & cullingMask) {
             closest = hitResult;
           } else {
             const hits = (this._hits ||= []);
-            scenePhysics.raycastAll(ray, camera.farClipPlane, this._queryFilter, hits);
+            scenePhysics.raycastAll(ray, farClipPlane, this._queryFilter, hits);
             for (let k = 0; k < hits.length; k++) {
               const hit = hits[k];
               if (hit.entity!.layer & cullingMask && (!closest || hit.distance < closest.distance)) {
@@ -62,7 +61,7 @@ export class PhysicsPointerEventEmitter extends PointerEventEmitter {
           }
         }
         hitResult.point.set(0, 0, 0);
-        if (camera.clearFlags & CameraClearFlags.Color) {
+        if (clearFlags & CameraClearFlags.Color) {
           this._updateRaycast(null, pointer);
           return;
         }

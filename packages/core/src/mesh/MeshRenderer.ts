@@ -105,8 +105,7 @@ export class MeshRenderer extends Renderer {
   protected override _updateBounds(worldBounds: BoundingBox): void {
     const mesh = this._mesh;
     if (mesh) {
-      const localBounds = mesh.bounds;
-      BoundingBox.transform(localBounds, this._transformEntity!.transform.worldMatrix, worldBounds);
+      BoundingBox.transform(mesh.bounds, this._getRenderWorldMatrix(), worldBounds);
     } else {
       const { worldPosition } = this._transformEntity!.transform;
       worldBounds.min.copyFrom(worldPosition);
