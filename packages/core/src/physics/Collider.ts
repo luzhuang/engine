@@ -119,6 +119,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
   protected _isTrigger = false;
   private _isSceneQuery = true;
   private _contactEventsEnabled = true;
+  private _contactModificationEnabled = false;
   private _contactOffset = 0.02;
   private _restOffset = 0;
   @ignoreClone
@@ -206,6 +207,24 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (this._contactEventsEnabled !== value) {
       this._contactEventsEnabled = value;
       this._native?.setContactEventsEnabled(value);
+    }
+  }
+
+  /**
+   * Whether the scene contact modifier can edit solid contacts involving this Collider.
+   * @defaultValue false
+   * @remarks Either Collider in the pair can enable modification. This flag does not wake bodies.
+   * Trigger overlaps and character controller movement sweeps do not generate modifiable contacts.
+   * Eligible pairs retain modifiable contact data even when the scene callback is null.
+   */
+  get contactModificationEnabled(): boolean {
+    return this._contactModificationEnabled;
+  }
+
+  set contactModificationEnabled(value: boolean) {
+    if (this._contactModificationEnabled !== value) {
+      this._contactModificationEnabled = value;
+      this._native?.setContactModificationEnabled(value);
     }
   }
 
@@ -669,6 +688,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (this._isTrigger) shape.setIsTrigger(true);
     if (!this._isSceneQuery) shape.setIsSceneQuery(false);
     if (!this._contactEventsEnabled) shape.setContactEventsEnabled(false);
+    if (this._contactModificationEnabled) shape.setContactModificationEnabled(true);
     shape.setCollisionLayer(this._collisionLayerIndex);
     if (this._includeLayers || this._excludeLayers) {
       shape.setLayerOverrides(this._includeLayers, this._excludeLayers);

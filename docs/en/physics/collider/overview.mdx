@@ -47,6 +47,7 @@ All Collider components share these properties:
 | [**rotation**](/apis/core/#Collider-rotation) | Local rotation of the shape, in degrees | (0, 0, 0) |
 | [**isTrigger**](/apis/core/#Collider-isTrigger) | Whether the Collider is a trigger, which reports overlaps without a collision response. See [Collision Events](/en/docs/physics/collider/event) | false |
 | [**contactEventsEnabled**](/apis/core/#Collider-contactEventsEnabled) | Whether scripts on this Collider and its attached Rigidbody receive collision callbacks for this shape | true |
+| [**contactModificationEnabled**](/apis/core/#Collider-contactModificationEnabled) | Whether the scene can modify solid contacts involving this Collider | false |
 | [**material**](/apis/core/#Collider-material) | The assigned [physics material](#physics-material), or `null` to use the shared default material | null |
 | [**collisionLayer**](/apis/core/#Collider-collisionLayer) | The collision layer of this Collider, a single layer only. See [Collision Layer](/en/docs/physics/collider/collisionLayer) | Layer.Layer0 |
 | [**contactOffset**](/apis/core/#Collider-contactOffset) | Positive distance in world units that contributes to how early a pair can generate contacts | 0.02 |

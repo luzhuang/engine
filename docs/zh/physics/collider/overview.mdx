@@ -47,6 +47,7 @@ label: Physics
 | [**rotation**](/apis/core/#Collider-rotation) | 形状的局部旋转，单位为角度 | (0, 0, 0) |
 | [**isTrigger**](/apis/core/#Collider-isTrigger) | 是否为触发器。触发器只报告重叠，不产生碰撞响应。见[碰撞事件](/docs/physics/collider/event) | false |
 | [**contactEventsEnabled**](/apis/core/#Collider-contactEventsEnabled) | 当前碰撞器及其所属刚体的脚本是否接收此形状的碰撞回调 | true |
+| [**contactModificationEnabled**](/apis/core/#Collider-contactModificationEnabled) | 场景是否可以修改该碰撞器参与的实体接触 | false |
 | [**material**](/apis/core/#Collider-material) | 指定的[物理材质](#物理材质)，为 `null` 时使用共享默认材质 | null |
 | [**collisionLayer**](/apis/core/#Collider-collisionLayer) | 碰撞器所属的碰撞层，只能是单个层。见[碰撞层](/docs/physics/collider/collisionLayer) | Layer.Layer0 |
 | [**contactOffset**](/apis/core/#Collider-contactOffset) | 以世界单位表示的正接触偏移，用于决定两个碰撞器可以在多远处产生接触 | 0.02 |

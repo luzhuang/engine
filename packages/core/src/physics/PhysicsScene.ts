@@ -16,6 +16,7 @@ import { Script } from "../Script";
 import { DisorderedArray } from "../utils/DisorderedArray";
 import { Collider } from "./Collider";
 import { Collision } from "./Collision";
+import { ContactModification } from "./ContactModification";
 import { HitResult } from "./HitResult";
 import type { Joint } from "./joint/Joint";
 import { PhysicsMaterial } from "./PhysicsMaterial";
@@ -109,6 +110,33 @@ export class PhysicsScene {
   _nativePhysicsScene: IPhysicsScene;
 
   private _contactEventConsumerCount = 0;
+  private _contactModification?: ContactModification;
+
+  /**
+   * The synchronous callback that can modify solid contacts before they are solved. Null disables the callback.
+   * @remarks At least one Collider in a pair must enable {@link Collider.contactModificationEnabled}.
+   * Use the borrowed contact batch only during the callback. Defer physics queries, scene and body changes,
+   * and changes to this callback until after the step. A synchronous error is rethrown after the step completes.
+   */
+  get contactModifier(): ((contacts: ContactModification) => void) | null {
+    return this._contactModification?._modifier ?? null;
+  }
+
+  set contactModifier(value: ((contacts: ContactModification) => void) | null) {
+    const previous = this.contactModifier;
+    if (previous === value) return;
+    Engine._assertOutsideContactModifier();
+
+    const nativeScene = this._nativePhysicsScene;
+    if (!nativeScene) throw new Error("Contact modification requires a live physics scene.");
+    if (value !== null && typeof value !== "function")
+      throw new TypeError("Contact modifier must be a function or null.");
+
+    const contacts = (this._contactModification ||= new ContactModification());
+    if (!previous) nativeScene.setContactModifier((batch) => contacts._dispatch(batch));
+    else if (!value) nativeScene.setContactModifier(null);
+    contacts._modifier = value;
+  }
 
   /**
    * The gravity of physics scene.
@@ -1068,6 +1096,7 @@ export class PhysicsScene {
    * @throws When automatic simulation is enabled, the scene cannot simulate, or the timestep is invalid.
    */
   step(deltaTime = this._fixedTimeStep): void {
+    Engine._assertOutsideContactModifier();
     if (this.autoSimulation || !this._nativePhysicsScene || this._scene.destroyed || !this._scene.isActive) {
       throw new Error("PhysicsScene.step requires an active physics scene with automatic simulation disabled.");
     }
@@ -1118,6 +1147,7 @@ export class PhysicsScene {
 
   private _step(deltaTime: number, startScripts: boolean): void {
     if (this._stepping) throw new Error("PhysicsScene cannot step while it is already simulating.");
+    let contactError: [unknown] | undefined;
     this._stepping = true;
     try {
       const scene = this._scene;
@@ -1130,6 +1160,7 @@ export class PhysicsScene {
       this._syncColliders();
       if (scene.destroyed) return;
       nativePhysicsScene.update(deltaTime);
+      contactError = this._contactModification?._takeError();
       if (this._bodyOrderDirty && !bodies.isLopping) {
         this._sortBodies();
       }
@@ -1151,9 +1182,12 @@ export class PhysicsScene {
         }
       }
       if (!scene.destroyed) this._dispatchEvents(nativePhysicsScene.updateEvents());
+    } catch (error) {
+      if (!contactError) throw error;
     } finally {
       this._stepping = false;
     }
+    if (contactError) throw contactError[0];
   }
 
   /**
@@ -1162,6 +1196,7 @@ export class PhysicsScene {
    * relative to them, and finally the mass properties that depend on the attached Colliders.
    */
   _syncColliders(): void {
+    Engine._assertOutsideContactModifier();
     const dirtyBodies = this._dirtyBodies;
     while (dirtyBodies.length) {
       const body = dirtyBodies.pop()!;
@@ -1316,6 +1351,7 @@ export class PhysicsScene {
     this._defaultMaterial = null;
     this._nativePhysicsScene?.destroy();
     this._nativePhysicsScene = null!;
+    this._contactModification = undefined;
   }
 
   private _sortBodies(): void {

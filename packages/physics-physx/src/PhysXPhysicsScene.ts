@@ -1,5 +1,6 @@
 import { Vector3, DisorderedArray, Quaternion } from "@galacean/engine";
 import {
+  IContactModification,
   IPhysicsQueryFilter,
   IPhysicsQueryHit,
   IPhysicsScene,
@@ -40,6 +41,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
   private _pxScene: any;
   private _pxSceneQueries: any;
   private _physXSimulationCallbackInstance: any;
+  private _pxContactModificationCallback?: any;
   private _castBuffers?: Float64Array[];
   private _castDepth = 0;
 
@@ -237,6 +239,22 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     if (!enabled) {
       this._physicsEvents.contactEventCount = 0;
     }
+  }
+
+  /** {@inheritDoc IPhysicsScene.setContactModifier } */
+  setContactModifier(modifier: ((batch: IContactModification) => void) | null): void {
+    let callback: any = null;
+    if (modifier) {
+      callback = new this._physXPhysics._physX.PxContactModificationCallback(() => modifier(callback));
+    }
+    try {
+      this._pxScene.setContactModificationCallback(callback);
+    } catch (error) {
+      callback?.delete();
+      throw error;
+    }
+    this._pxContactModificationCallback?.delete();
+    this._pxContactModificationCallback = callback;
   }
 
   /**
@@ -520,6 +538,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     this._sphereGeometry?.delete();
     this._capsuleGeometry?.delete();
 
+    if (this._pxContactModificationCallback) this.setContactModifier(null);
     this._physXSimulationCallbackInstance.delete();
     this._pxSceneQueries.delete();
     // The controller manager releases its controllers through the scene.

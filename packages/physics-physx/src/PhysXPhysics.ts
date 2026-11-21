@@ -1,4 +1,4 @@
-import { Quaternion, SystemInfo, Vector3 } from "@galacean/engine";
+import { Engine, Quaternion, SystemInfo, Vector3 } from "@galacean/engine";
 import {
   IBoxColliderShape,
   ICapsuleColliderShape,
@@ -83,6 +83,7 @@ export class PhysXPhysics implements IPhysics {
    * Destroy PhysXPhysics.
    */
   destroy(): void {
+    Engine._assertOutsideContactModifier();
     this._pxCooking.release();
     this._pxCookingParams.delete();
     this._physX.PxCloseExtensions();

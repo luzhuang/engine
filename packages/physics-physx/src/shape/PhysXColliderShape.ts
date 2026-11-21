@@ -89,6 +89,11 @@ export abstract class PhysXColliderShape implements IColliderShape {
     this._pxShape.setContactEventsEnabled(value);
   }
 
+  /** {@inheritDoc IColliderShape.setContactModificationEnabled } */
+  setContactModificationEnabled(value: boolean): void {
+    this._pxShape.setContactModificationEnabled(value);
+  }
+
   /** {@inheritDoc IColliderShape.getWorldBounds } */
   getWorldBounds(outMin: Vector3, outMax: Vector3): void {
     this._pxShape.getWorldBounds(outMin, outMax);

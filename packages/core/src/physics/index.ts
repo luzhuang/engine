@@ -5,6 +5,7 @@ export { CharacterController } from "./CharacterController";
 export type { ControllerColliderHit, ControllerMoveFilter } from "./CharacterController";
 export { Collider } from "./Collider";
 export { Collision } from "./Collision";
+export type { ContactModification } from "./ContactModification";
 export { ContactPoint } from "./ContactPoint";
 export { HeightFieldCollider } from "./HeightFieldCollider";
 export type { HeightFieldData } from "./HeightFieldCollider";

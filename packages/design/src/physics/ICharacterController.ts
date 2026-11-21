@@ -66,6 +66,9 @@ export interface ICharacterController {
   /** Sets whether this controller's shape requests contact events. The other shape can still request reporting. */
   setContactEventsEnabled(value: boolean): void;
 
+  /** Allows a scene contact modifier to edit solid contacts involving this collider. */
+  setContactModificationEnabled(value: boolean): void;
+
   /** Sets whether other bodies can collide with the controller and triggers can detect it. */
   setDetectCollisions(value: boolean): void;
 

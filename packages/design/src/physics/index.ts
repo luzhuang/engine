@@ -6,6 +6,7 @@ export type { IPhysicsMaterial, IPhysicsMaterialProperties } from "./IPhysicsMat
 export type { IPhysicsQueryFilter, IPhysicsQueryHit, IPhysicsScene, PhysicsSceneOptions } from "./IPhysicsScene";
 export type { IStaticCollider } from "./IStaticCollider";
 export type { ICollision, IContactPoint } from "./ICollision";
+export type { IContactModification } from "./IContactModification";
 export type { IContactEvent, ITriggerEvent, IPhysicsEvents } from "./IPhysicsEvents";
 export { PhysicsEventState } from "./IPhysicsEvents";
 export * from "./joints/index";

@@ -94,3 +94,23 @@ class EventHandler extends Script {
   }
 }
 ```
+
+## Modifying contacts
+
+Set `Collider.contactModificationEnabled` on either collider and assign `scene.physics.contactModifier` to edit contacts before the solver applies impulses. For example, these two colliders pass through each other when the callback ignores all their contacts.
+
+```typescript
+platform.contactModificationEnabled = true;
+scene.physics.contactModifier = (contacts) => {
+  for (let pair = 0; pair < contacts.pairCount; pair++) {
+    const first = contacts.getCollider(pair, 0);
+    const second = contacts.getCollider(pair, 1);
+    if ((first === platform && second === player) || (first === player && second === platform)) {
+      const count = contacts.getContactCount(pair);
+      for (let contact = 0; contact < count; contact++) contacts.ignoreContact(pair, contact);
+    }
+  }
+};
+```
+
+The batch is valid only during the callback. Read or modify the batch there, then apply any scene changes after the step. `contacts.isCCD` identifies contacts from a CCD sweep. Swept contacts support editing points, normals, restitution, and maximum impulse. Separation, friction, target velocity, and inverse mass or inertia scales are available for discrete contacts. Assign `null` to remove the scene callback.

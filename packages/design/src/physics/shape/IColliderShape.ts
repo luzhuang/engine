@@ -50,6 +50,9 @@ export interface IColliderShape {
   /** Sets whether this shape requests contact events. Either shape in a pair can request reporting. */
   setContactEventsEnabled(value: boolean): void;
 
+  /** Allows a scene contact modifier to edit solid contacts involving this collider. */
+  setContactModificationEnabled(value: boolean): void;
+
   /** Writes the exact axis-aligned bounds of the world-space shape. */
   getWorldBounds(outMin: Vector3, outMax: Vector3): void;
 

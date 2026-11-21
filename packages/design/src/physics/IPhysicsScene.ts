@@ -1,6 +1,7 @@
 import { Quaternion, Vector3 } from "@galacean/engine-math";
 import { ICharacterController } from "./ICharacterController";
 import { ICollider } from "./ICollider";
+import type { IContactModification } from "./IContactModification";
 import { IPhysicsEvents } from "./IPhysicsEvents";
 
 /** Settings applied when a physics scene is created. */
@@ -91,6 +92,9 @@ export interface IPhysicsScene {
    * @param enabled - Whether collision contact events should be delivered for dispatch.
    */
   setContactEventEnabled(enabled: boolean): void;
+
+  /** Replaces the synchronous solver hook. Null disables contact modification. */
+  setContactModifier(modifier: ((batch: IContactModification) => void) | null): void;
 
   /**
    * Collect buffered physics events for the completed step.

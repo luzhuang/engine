@@ -581,6 +581,7 @@ export class CharacterController extends Collider {
     }
     controller.setIsSceneQuery(this.isSceneQuery);
     if (!this.contactEventsEnabled) controller.setContactEventsEnabled(false);
+    if (this.contactModificationEnabled) controller.setContactModificationEnabled(true);
     if (!this._detectCollisions) controller.setDetectCollisions(false);
     controller.setClimbingMode(this._climbingMode);
     controller.setNonWalkableMode(this._nonWalkableMode);

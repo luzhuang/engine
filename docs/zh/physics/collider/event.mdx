@@ -93,3 +93,23 @@ class EventHandler extends Script {
   }
 }
 ```
+
+## 修改接触
+
+在任一碰撞器上开启 `Collider.contactModificationEnabled`，再设置 `scene.physics.contactModifier`，即可在求解器施加冲量之前修改接触。例如，忽略下面两个碰撞器之间的全部接触，可让它们彼此穿过。
+
+```typescript
+platform.contactModificationEnabled = true;
+scene.physics.contactModifier = (contacts) => {
+  for (let pair = 0; pair < contacts.pairCount; pair++) {
+    const first = contacts.getCollider(pair, 0);
+    const second = contacts.getCollider(pair, 1);
+    if ((first === platform && second === player) || (first === player && second === platform)) {
+      const count = contacts.getContactCount(pair);
+      for (let contact = 0; contact < count; contact++) contacts.ignoreContact(pair, contact);
+    }
+  }
+};
+```
+
+接触批次仅在回调中有效。在回调内读写接触数据，场景变更等物理步结束后再执行。`contacts.isCCD` 表示接触来自 CCD 扫掠。扫掠接触支持修改接触点、法线、反弹系数和最大冲量。离散接触还支持修改分离距离、摩擦、目标速度、逆质量和逆惯量缩放。将场景回调设为 `null` 即可移除它。
