@@ -3,6 +3,7 @@ import { Color, Quaternion, Rand, Vector3, Vector4 } from "@galacean/engine-math
 import { ignoreClone } from "../../clone/CloneDecorators";
 import type { ICloneHook } from "../../clone/ICloneHook";
 import type { ShaderData } from "../../shader/ShaderData";
+import { ShaderMacro } from "../../shader/ShaderMacro";
 import { ShaderProperty } from "../../shader/ShaderProperty";
 import type { ParticleGenerator } from "../ParticleGenerator";
 import { ParticleRandomSubSeeds } from "../enums/ParticleRandomSubSeeds";
@@ -18,6 +19,8 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
   private static readonly _sizeScale = ShaderProperty.getByName("renderer_SizeScale");
   private static readonly _worldPosition = ShaderProperty.getByName("renderer_WorldPosition");
   private static readonly _worldRotation = ShaderProperty.getByName("renderer_WorldRotation");
+  private static readonly _feedbackToRenderRotation = ShaderProperty.getByName("renderer_FeedbackToRenderRotation");
+  private static readonly _feedbackRenderRotation = ShaderMacro.getByName("RENDERER_FEEDBACK_RENDER_ROTATION");
   private static readonly _gravity = ShaderProperty.getByName("renderer_Gravity");
   private static readonly _simulationSpace = ShaderProperty.getByName("renderer_SimulationSpace");
   private static readonly _startRotation3D = ShaderProperty.getByName("renderer_ThreeDStartRotation");
@@ -78,6 +81,8 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
   private readonly _worldRotationValue = new Vector4();
   @ignoreClone
   private _renderPosition?: Vector3;
+  @ignoreClone
+  private _feedbackRenderRotationValue?: Vector4;
   private _duration = 5;
   private _startLifetime: ParticleCompositeCurve;
   private _startSpeed: ParticleCompositeCurve;
@@ -306,6 +311,7 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
     const transform = renderer.entity.transform;
     const space = this._simulationSpace;
 
+    if (this._feedbackRenderRotationValue) shaderData.disableMacro(MainModule._feedbackRenderRotation);
     if (space === ParticleSimulationSpace.Local) {
       this._setEmitterPose(shaderData, transform.worldPosition, transform.worldRotationQuaternion);
     } else if (space !== ParticleSimulationSpace.World) {
@@ -338,20 +344,34 @@ export class MainModule extends DataObject implements ICloneHook<MainModule> {
   }
 
   /** @internal */
-  _updateRenderPose(shaderData: ShaderData): void {
-    if (this._simulationSpace !== ParticleSimulationSpace.Local) return;
-
+  _updateRenderPose(shaderData: ShaderData, rotateFeedbackVelocity: boolean): void {
+    const local = this._simulationSpace === ParticleSimulationSpace.Local;
     const entity = this._generator._renderer.entity;
     const transform = entity.transform;
-    const pose = entity.scene?.physics._getRenderPose(entity);
+    const pose = local ? entity.scene?.physics._getRenderPose(entity) : undefined;
     if (pose) {
       this._setEmitterPose(
         shaderData,
         pose.transformPoint(transform.worldPosition, (this._renderPosition ||= new Vector3())),
         transform._getRenderWorldRotationQuaternion(pose)
       );
-    } else if (this._renderPosition && shaderData.getVector3(MainModule._worldPosition) === this._renderPosition) {
+    } else if (
+      local &&
+      this._renderPosition &&
+      shaderData.getVector3(MainModule._worldPosition) === this._renderPosition
+    ) {
       this._setEmitterPose(shaderData, transform.worldPosition, transform.worldRotationQuaternion);
+    }
+
+    const delta = rotateFeedbackVelocity && pose?.rotation;
+    if (delta && (delta.x !== 0 || delta.y !== 0 || delta.z !== 0)) {
+      shaderData.enableMacro(MainModule._feedbackRenderRotation);
+      shaderData.setVector4(
+        MainModule._feedbackToRenderRotation,
+        (this._feedbackRenderRotationValue ||= new Vector4()).copyFrom(delta)
+      );
+    } else if (this._feedbackRenderRotationValue) {
+      shaderData.disableMacro(MainModule._feedbackRenderRotation);
     }
   }
 

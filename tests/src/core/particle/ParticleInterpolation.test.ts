@@ -4,6 +4,7 @@ import {
   Camera,
   Entity,
   ParticleMaterial,
+  ParticleRenderMode,
   ParticleRenderer,
   ParticleSimulationSpace,
   ParticleStopMode,
@@ -126,5 +127,37 @@ describe("Particle interpolation", () => {
     expect(red(3 + shift, 1)).toBeGreaterThan(240);
     expect(red(blendedX, blendedY)).toBeLessThan(10);
     expect(red(0.5, -1)).toBeGreaterThan(240);
+  });
+
+  it("stretches local feedback particles along the interpolated world velocity", () => {
+    const entity = engine.sceneManager.activeScene.createRootEntity();
+    entity.addComponent(BoxCollider);
+    const body = entity.addComponent(Rigidbody);
+    body.isKinematic = true;
+    body.interpolation = true;
+    const emitter = entity.createChild();
+    emitter.transform.position.x = 0.5;
+    const renderer = emit(emitter, ParticleSimulationSpace.Local, true);
+    renderer.renderMode = ParticleRenderMode.StretchBillboard;
+    renderer.lengthScale = 4;
+    engine.update();
+    expect(red(0.72, 0)).toBeGreaterThan(240);
+
+    body.move(new Vector3(3, 0, 0), new Quaternion().rotationAxisAngle(new Vector3(0, 0, 1), Math.PI / 2));
+    const elapsed = 1.5 * tick;
+    const shift = velocityX * elapsed;
+    const x = 1.5 + (1 + shift) * Math.SQRT1_2;
+    const y = (1 - shift) * Math.SQRT1_2;
+    camera.entity.transform.setPosition(x, y, 10);
+    camera.orthographicSize = 0.6;
+    now += elapsed * 1000;
+    engine.update();
+    expect(red(x - 0.28, y + 0.28)).toBeGreaterThan(240);
+    expect(red(x - 0.28, y)).toBeLessThan(10);
+
+    body.interpolation = false;
+    camera.entity.transform.setPosition(3 + shift, 1, 10);
+    camera.render();
+    expect(red(3 + shift - 0.28, 1)).toBeGreaterThan(240);
   });
 });

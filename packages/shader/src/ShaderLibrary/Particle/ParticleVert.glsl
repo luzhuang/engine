@@ -21,6 +21,9 @@ float renderer_CurrentTime;
 vec3 renderer_Gravity;
 vec3 renderer_WorldPosition;
 vec4 renderer_WorldRotation;
+#ifdef RENDERER_FEEDBACK_RENDER_ROTATION
+    vec4 renderer_FeedbackToRenderRotation;
+#endif
 bool renderer_ThreeDStartRotation;
 int renderer_ScalingMode;
 vec3 renderer_PositionScale;
@@ -180,6 +183,17 @@ vec3 computeParticlePosition(Attributes attributes, in vec3 initialPosition, in 
 }
 #endif
 
+#if defined(RENDERER_TRANSFORM_FEEDBACK) && defined(RENDERER_MODE_STRETCHED_BILLBOARD)
+    vec3 getFeedbackRenderVelocity(vec3 velocity) {
+        #ifdef RENDERER_FEEDBACK_RENDER_ROTATION
+            // Match the pose used to draw the feedback-integrated local displacement.
+            return rotationByQuaternions(velocity, renderer_FeedbackToRenderRotation);
+        #else
+            return velocity;
+        #endif
+    }
+#endif
+
 // Returns the world-space center for the particle, applying simulation,
 // billboard / mesh placement, and 3D rotation. Writes v.v_MeshColor when
 // running in mesh mode with vertex color enabled.
@@ -215,7 +229,7 @@ vec3 computeParticleCenter(Attributes attr, float age, float normalizedAge, inou
                 if (renderer_VOLSpace == 0) {
                     visualLocalVelocity += instantVOLVelocity;
                 } else {
-                    visualWorldVelocity += instantVOLVelocity;
+                    visualWorldVelocity += getFeedbackRenderVelocity(instantVOLVelocity);
                 }
             #endif
 
@@ -262,7 +276,7 @@ vec3 computeParticleCenter(Attributes attr, float age, float normalizedAge, inou
             #endif
 
             #ifdef _INHERIT_VELOCITY_MODULE_ENABLED
-                visualWorldVelocity += evaluateInheritVelocity(attr, normalizedAge);
+                visualWorldVelocity += getFeedbackRenderVelocity(evaluateInheritVelocity(attr, normalizedAge));
             #endif
         #endif
     #else
