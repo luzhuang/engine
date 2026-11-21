@@ -9,6 +9,7 @@ import { IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
 import {
   IBoxColliderShape,
   ICapsuleColliderShape,
+  IHeightFieldColliderShape,
   IMeshColliderShape,
   IPlaneColliderShape,
   ISphereColliderShape
@@ -115,6 +116,18 @@ export interface IPhysics {
     cookingFlags: number,
     scale: Vector3
   ): IMeshColliderShape | null;
+
+  /**
+   * Cook and create a heightfield collider shape.
+   */
+  createHeightFieldColliderShape(
+    uniqueID: number,
+    heights: Int16Array,
+    rows: number,
+    columns: number,
+    scale: Vector3,
+    material: IPhysicsMaterial
+  ): IHeightFieldColliderShape | null;
 
   /**
    * Create fixed joint.

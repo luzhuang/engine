@@ -92,6 +92,24 @@ PlaneCollider has no shape properties. It is an infinite plane facing the Entity
 | [**convex**](/apis/core/#MeshCollider-convex) | Whether to use a convex hull generated from the mesh vertices. A non-convex mesh cannot be a trigger or belong to a non-kinematic Rigidbody; invalid combinations are excluded until resolved | false |
 | [**cookingFlags**](/apis/core/#MeshCollider-cookingFlags) | Mesh cooking flags | Cleaning \| VertexWelding |
 
+### HeightFieldCollider
+
+Use `HeightFieldCollider` for terrain stored as a grid. Rows extend along local X and columns along local Z. Each signed 16-bit sample is multiplied by `heightScale` to get its height along local Y. The grid starts at the collider's local `center`.
+
+```typescript
+const terrain = entity.addComponent(HeightFieldCollider);
+terrain.setHeightField({
+  rows: 2,
+  columns: 3,
+  heights: new Int16Array([0, 2, 0, 1, 3, 1]),
+  rowScale: 4,
+  columnScale: 2,
+  heightScale: 0.25
+});
+```
+
+Supply one value per vertex in row-major order. The method copies the samples, so you can reuse the input. Pass `null` to remove the surface. Scene or prefab calls to `setHeightField` can use a plain number array. The surface requires positive world scale and can be static or owned by a kinematic Rigidbody.
+
 ## Physics Material
 
 - [**material**](/apis/core/#Collider-material): Gets or assigns a [PhysicsMaterial](/apis/core/#PhysicsMaterial) without creating or cloning one. Changes affect every Collider that references it. `null` selects the shared default material. Assigning a material that belongs to another Engine throws.

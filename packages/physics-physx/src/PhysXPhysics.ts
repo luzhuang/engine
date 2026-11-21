@@ -5,6 +5,7 @@ import {
   ICharacterController,
   IDynamicCollider,
   IFixedJoint,
+  IHeightFieldColliderShape,
   IHingeJoint,
   IMeshColliderShape,
   IPhysics,
@@ -27,6 +28,7 @@ import { PhysXHingeJoint } from "./joint/PhysXHingeJoint";
 import { PhysXSpringJoint } from "./joint/PhysXSpringJoint";
 import { PhysXBoxColliderShape } from "./shape/PhysXBoxColliderShape";
 import { PhysXCapsuleColliderShape } from "./shape/PhysXCapsuleColliderShape";
+import { PhysXHeightFieldColliderShape } from "./shape/PhysXHeightFieldColliderShape";
 import { PhysXMeshColliderShape } from "./shape/PhysXMeshColliderShape";
 import { PhysXPlaneColliderShape } from "./shape/PhysXPlaneColliderShape";
 import { PhysXSphereColliderShape } from "./shape/PhysXSphereColliderShape";
@@ -177,6 +179,19 @@ export class PhysXPhysics implements IPhysics {
       cookingFlags,
       scale
     );
+    return shape._pxShape ? shape : null;
+  }
+
+  /** {@inheritDoc IPhysics.createHeightFieldColliderShape} */
+  createHeightFieldColliderShape(
+    uniqueID: number,
+    heights: Int16Array,
+    rows: number,
+    columns: number,
+    scale: Vector3,
+    material: PhysXPhysicsMaterial
+  ): IHeightFieldColliderShape | null {
+    const shape = new PhysXHeightFieldColliderShape(this, uniqueID, heights, rows, columns, scale, material);
     return shape._pxShape ? shape : null;
   }
 

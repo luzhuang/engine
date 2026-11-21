@@ -4,6 +4,8 @@ export { CharacterController } from "./CharacterController";
 export { Collider } from "./Collider";
 export { Collision } from "./Collision";
 export { ContactPoint } from "./ContactPoint";
+export { HeightFieldCollider } from "./HeightFieldCollider";
+export type { HeightFieldData } from "./HeightFieldCollider";
 export { HitResult } from "./HitResult";
 export { MeshCollider } from "./MeshCollider";
 export { PhysicsMaterial } from "./PhysicsMaterial";
