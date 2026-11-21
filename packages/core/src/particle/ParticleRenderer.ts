@@ -229,7 +229,10 @@ export class ParticleRenderer extends Renderer {
     }
 
     // Feedback has already consumed the simulated pose during the particle update.
-    generator.main._updateRenderPose(this.shaderData);
+    generator.main._updateRenderPose(
+      this.shaderData,
+      this._renderMode === ParticleRenderMode.StretchBillboard && !!generator._feedbackSimulator
+    );
     const engine = this._engine;
     const renderElement = engine._renderElementPool.get();
     renderElement.set(this, material, generator._primitive, generator._subPrimitive);
