@@ -477,6 +477,14 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     if (body?.scene === this.scene) Joint._wakeBody(body);
   }
 
+  /** @internal Wake the other endpoint after the constraint enters or leaves simulation. */
+  _wakeOtherBody(body: Rigidbody): void {
+    if (this._nativeJoint && !this._nativeJoint.isBroken()) {
+      const connectedBody = this._connectedBody;
+      Joint._wakeBody(body === connectedBody ? this.entity.getComponent(Rigidbody) : connectedBody);
+    }
+  }
+
   private static _wakeBody(body: Rigidbody | null | undefined): void {
     if (body && !body.destroyed && body._index !== -1 && !body.isKinematic) {
       body.wakeUp();

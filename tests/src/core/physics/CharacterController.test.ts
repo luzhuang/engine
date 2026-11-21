@@ -1275,6 +1275,25 @@ describe("CharacterController", () => {
       expect(role.transform.position.x).toBeCloseTo(3.02, 2);
     });
 
+    it("passes through a query-only Rigidbody that still appears in scene queries", () => {
+      role.transform.setPosition(0, 4, 0);
+      const obstacle = addBox(new Vector3(2, 2, 2), new Vector3(3, 4, 0));
+      const body = obstacle.entity.addComponent(Rigidbody);
+      body.isKinematic = true;
+
+      const displacement = new Vector3(6, 0, 0);
+      expect(move(displacement) & ControllerCollisionFlag.Sides).not.toBe(0);
+      body.simulationEnabled = false;
+      const ray = new Ray(new Vector3(3, 4, 3), new Vector3(0, 0, -1));
+      expect(physics.raycast(ray)).toBe(true);
+      expect(move(displacement) & ControllerCollisionFlag.Sides).toBe(0);
+      expect(role.transform.worldPosition.x).toBeGreaterThan(5);
+
+      role.transform.position.x = 0;
+      body.simulationEnabled = true;
+      expect(move(displacement) & ControllerCollisionFlag.Sides).not.toBe(0);
+    });
+
     it("filters compound Rigidbody child colliders independently by layer and never blocks on triggers", () => {
       controller.collisionLayer = Layer.Layer1;
       role.transform.setPosition(0, 2, 0);

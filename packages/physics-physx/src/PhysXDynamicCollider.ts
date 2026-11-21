@@ -164,6 +164,15 @@ export class PhysXDynamicCollider extends PhysXCollider implements IDynamicColli
     this._pxActor.setActorFlag(this._physXPhysics._physX.PxActorFlag.eDISABLE_GRAVITY, !value);
   }
 
+  /** {@inheritDoc IDynamicCollider.setSimulationEnabled} */
+  setSimulationEnabled(value: boolean): void {
+    if (!this._pxActor.setSimulationEnabled(value)) return;
+    const scene = this._scene;
+    if (scene) {
+      for (const shape of this._shapes) scene._refreshTriggerPairsForShape(shape._id);
+    }
+  }
+
   /**
    * {@inheritDoc IDynamicCollider.setMotionState }
    */

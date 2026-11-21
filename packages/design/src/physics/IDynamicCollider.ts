@@ -140,6 +140,11 @@ export interface IDynamicCollider extends ICollider {
   setUseGravity(value: boolean): void;
 
   /**
+   * Toggle simulation while retaining the actor and its query shapes in the scene.
+   */
+  setSimulationEnabled(value: boolean): void;
+
+  /**
    * Applies the kinematic state and CCD together so the backend can select the supported detection method.
    * @param isKinematic - Whether the dynamic collider is kinematic
    * @param useCCD - Whether to use continuous collision detection

@@ -546,6 +546,11 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     }
   }
 
+  /** @internal Reconcile active trigger pairs when a shape stays in the scene. */
+  _refreshTriggerPairsForShape(id: number): void {
+    this._shapeChanges.set(id, true);
+  }
+
   /**
    * @internal
    * Queue removal for the next simulation step. Pairs for a collider that stays removed end silently.

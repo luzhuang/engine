@@ -15,7 +15,7 @@ import type { Joint } from "./joint/Joint";
 /**
  * Simulates the motion of an Entity and its compound collision shape.
  * @remarks Each Entity can have one Rigidbody. It owns colliders on its Entity and descendants up to the next
- * Rigidbody. Disabling it removes those shapes from simulation and queries while preserving their `enabled` values.
+ * Rigidbody. Setting `enabled` to false removes those shapes from simulation and queries while preserving their `enabled` values.
  * Removing it lets the next ancestor Rigidbody take ownership, or makes the shapes static if there is no ancestor body.
  * @decorator `@dependentComponents(Transform, DependentMode.CheckOnly)`
  */
@@ -84,6 +84,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   private _solverIterations = 4;
   private _solverVelocityIterations = 1;
   private _useGravity = true;
+  private _simulationEnabled = true;
   private _isKinematic = false;
   private _constraints: RigidbodyConstraints = 0;
   private _useCCD = false;
@@ -426,6 +427,30 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   }
 
   /**
+   * Whether the body participates in physics simulation.
+   * @remarks A query-only body follows the Entity's Transform and retains its Collider query settings.
+   * Switching a registered body out of simulation clears its forces, velocities and kinematic target.
+   * Active trigger overlaps end on the first step while the body is query-only.
+   * Unbroken joints resume when both connected bodies participate in simulation.
+   * @defaultValue true
+   */
+  get simulationEnabled(): boolean {
+    return this._simulationEnabled;
+  }
+
+  set simulationEnabled(value: boolean) {
+    if (this._simulationEnabled !== value) {
+      this._simulationEnabled = value;
+      this._nativeActor?.setSimulationEnabled(value);
+      this._resetInterpolation();
+      const joints = this._joints;
+      if (this._index !== -1 && joints) {
+        for (const joint of joints) joint._wakeOtherBody(this);
+      }
+    }
+  }
+
+  /**
    * Whether the body follows a target pose instead of responding to forces.
    * @remarks Use {@link move} to set a kinematic target. When changing to dynamic motion, kinematic-only shapes
    * leave simulation and queries until the body becomes kinematic again.
@@ -643,20 +668,21 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * Sets the world-space target position for the next kinematic simulation step, preserving the target rotation.
-   * @remarks An active body uses the target for scene queries immediately. The Entity's transform advances during simulation.
+   * @remarks A body participating in simulation uses the target for scene queries immediately.
+   * The Entity's transform advances during simulation.
    * @throws When the body is dynamic.
    */
   move(position: Vector3): void;
 
   /**
    * Sets the world-space target rotation for the next kinematic simulation step, preserving the target position.
-   * @remarks Requires an active kinematic Rigidbody.
+   * @remarks Requires an active kinematic Rigidbody with simulation enabled.
    */
   move(rotation: Quaternion): void;
 
   /**
    * Sets the world-space target position and rotation for the next kinematic simulation step.
-   * @remarks Requires an active kinematic Rigidbody.
+   * @remarks Requires an active kinematic Rigidbody with simulation enabled.
    */
   move(position: Vector3, rotation: Quaternion): void;
 
@@ -764,10 +790,13 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
       // Non-convex triangle meshes require a kinematic native actor before attachment
       actor.setMotionState(this._isKinematic, this._useCCD);
+      if (!this._simulationEnabled) actor.setSimulationEnabled(false);
       actor.setLinearDamping(this._linearDamping);
       actor.setAngularDamping(this._angularDamping);
-      if (!this._isKinematic) actor.setLinearVelocity(this._linearVelocity);
-      if (!this._isKinematic) actor.setAngularVelocity(this._angularVelocity);
+      if (this._simulationEnabled && !this._isKinematic) {
+        actor.setLinearVelocity(this._linearVelocity);
+        actor.setAngularVelocity(this._angularVelocity);
+      }
       actor.setMass(this._mass);
       this._automaticCenterOfMass || actor.setCenterOfMass(this._centerOfMass);
       if (!this._automaticInertiaTensor) {
@@ -877,6 +906,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * Write the simulated pose back to the Entity.
    */
   _writeBack(position: Vector3, rotation: Quaternion, automatic: boolean): void {
+    if (!this._simulationEnabled) return;
     const nativePosition = this._nativePosition;
     const nativeRotation = this._nativeRotation;
     const renderPose =

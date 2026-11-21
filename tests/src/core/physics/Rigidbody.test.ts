@@ -1091,6 +1091,130 @@ describe("Rigidbody", function () {
     expect(box.transform.worldPosition.x).toBe(-2);
   });
 
+  it("keeps a query-only kinematic body at its authored pose after cancelling a target", () => {
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(-2, 0, 0));
+    const body = box.getComponent(Rigidbody);
+    const physics = engine.sceneManager.activeScene.physics;
+    const ray = new Ray(new Vector3(2, 0, 3), new Vector3(0, 0, -1));
+    const hitsAt = (x: number) => {
+      ray.origin.x = x;
+      return physics.raycast(ray);
+    };
+    body.isKinematic = true;
+    body.move(new Vector3(2, 0, 0));
+    expect(hitsAt(2)).toBe(true);
+
+    body.simulationEnabled = false;
+    expect(hitsAt(2)).toBe(false);
+    expect(hitsAt(-2)).toBe(true);
+    box.transform.position.x = 0;
+    expect(hitsAt(0)).toBe(true);
+
+    body.simulationEnabled = true;
+    body.move(new Vector3(2, 0, 0));
+    expect(hitsAt(2)).toBe(true);
+    expect(hitsAt(0)).toBe(false);
+  });
+
+  it.each([false, true])("clears dynamic motion and resumes it after re-enabling (detached=%s)", (detached) => {
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 3, 0));
+    const body = box.getComponent(Rigidbody);
+    const physics = engine.sceneManager.activeScene.physics;
+    body.useGravity = false;
+    body.linearVelocity.x = 2;
+    body.angularVelocity.y = 1;
+    body.applyForce(new Vector3(100, 0, 0));
+
+    physics.autoSimulation = false;
+    try {
+      body.simulationEnabled = false;
+      body.applyImpulse(new Vector3(5, 0, 0));
+      physics.step(1 / 60);
+      expect(box.transform.worldPosition.x).toBe(0);
+      expect(body.linearVelocity.x).toBe(0);
+      expect(body.angularVelocity.y).toBe(0);
+
+      body.useGravity = true;
+      if (detached) box.isActive = false;
+      body.simulationEnabled = true;
+      if (detached) box.isActive = true;
+      physics.step(1 / 60);
+      expect(box.transform.worldPosition.x).toBe(0);
+      expect(box.transform.worldPosition.y).toBeLessThan(3);
+      body.applyImpulse(new Vector3(1, 0, 0));
+      physics.step(1 / 60);
+      expect(box.transform.worldPosition.x).toBeGreaterThan(0);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
+  it("suspends a joint's reaction and wakes the sleeping endpoint on suspension and return", () => {
+    const anchor = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 10, 0));
+    const anchorBody = anchor.getComponent(Rigidbody);
+    anchorBody.isKinematic = true;
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 5, 0));
+    const body = box.getComponent(Rigidbody);
+    const joint = box.addComponent(FixedJoint);
+    joint.connectedBody = anchorBody;
+    const force = new Vector3();
+    const torque = new Vector3();
+    const physics = engine.sceneManager.activeScene.physics;
+
+    physics.autoSimulation = false;
+    try {
+      physics.step();
+      joint.getReactionForce(force, torque);
+      expect(Math.abs(force.y)).toBeGreaterThan(5);
+
+      body.sleep();
+      anchorBody.simulationEnabled = false;
+      joint.getReactionForce(force, torque);
+      expect(force.length()).toBe(0);
+      physics.step();
+      expect(box.transform.worldPosition.y).toBeLessThan(5);
+
+      body.sleep();
+      anchor.transform.position.y = 11;
+      anchorBody.simulationEnabled = true;
+      for (let i = 0; i < 6; i++) physics.step();
+      expect(box.transform.worldPosition.y).toBeCloseTo(6, 2);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
+  it("keeps a broken joint out of the solver after a body resumes simulation", () => {
+    const anchor = addBox(new Vector3(1, 1, 1), true, new Vector3(0, 0, 0));
+    const anchorBody = anchor.getComponent(Rigidbody);
+    anchorBody.isKinematic = true;
+    const box = addBox(new Vector3(1, 1, 1), true, new Vector3(10, 0, 0));
+    const body = box.getComponent(Rigidbody);
+    body.useGravity = false;
+    const joint = box.addComponent(FixedJoint);
+    joint.connectedBody = anchorBody;
+    joint.breakForce = 1;
+    const physics = engine.sceneManager.activeScene.physics;
+
+    physics.autoSimulation = false;
+    try {
+      body.applyImpulse(new Vector3(60, 0, 0));
+      physics.step();
+      expect(joint.isBroken).toBe(true);
+      joint.breakForce = Infinity;
+
+      anchorBody.simulationEnabled = false;
+      anchorBody.simulationEnabled = true;
+      const x = box.transform.worldPosition.x;
+      body.linearVelocity.x = 3;
+      physics.step();
+      expect(box.transform.worldPosition.x).toBeGreaterThan(x);
+      expect(joint.isBroken).toBe(true);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
   it.each([true, false])("merges partial inherited prefab input with manual input first: %s", async (inputFirst) => {
     Loader.registerClass("Rigidbody", Rigidbody);
     Loader.registerClass("HingeJoint", HingeJoint);

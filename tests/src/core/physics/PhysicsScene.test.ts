@@ -1,6 +1,7 @@
 import { createPhysics } from "../../utils/physics";
 import {
   BoxCollider,
+  CapsuleCollider,
   CharacterController,
   Collider,
   Collision,
@@ -2257,6 +2258,51 @@ describe("Physics Test", () => {
     });
 
     describe("Collision Test", () => {
+      it.each([false, true])("ends trigger overlaps on suspension (replace shape=%s)", (replaceShape) => {
+        const root = enginePhysX.sceneManager.activeScene.createRootEntity("query-only trigger pair");
+        root.transform.setPosition(0, 1000, 0);
+        const trigger = root.createChild();
+        trigger.addComponent(BoxCollider).isTrigger = true;
+        const enter = vi.fn();
+        const stay = vi.fn();
+        const exit = vi.fn();
+        trigger.addComponent(
+          class extends Script {
+            onTriggerEnter = enter;
+            onTriggerStay = stay;
+            onTriggerExit = exit;
+          }
+        );
+        const visitor = root.createChild();
+        const collider = replaceShape ? visitor.addComponent(CapsuleCollider) : visitor.addComponent(BoxCollider);
+        if (collider instanceof CapsuleCollider) collider.radius = 0.5;
+        const body = visitor.addComponent(Rigidbody);
+        body.isKinematic = true;
+
+        physicsScene.autoSimulation = false;
+        try {
+          physicsScene.step();
+          physicsScene.step();
+          expect(enter).toHaveBeenCalledTimes(1);
+          expect(stay).toHaveBeenCalledTimes(1);
+
+          body.simulationEnabled = false;
+          if (collider instanceof CapsuleCollider) collider.height = 1;
+          physicsScene.step();
+          physicsScene.step();
+          expect(stay).toHaveBeenCalledTimes(1);
+          expect(exit).toHaveBeenCalledTimes(1);
+          expect(physicsScene.overlapSphereAll(visitor.transform.worldPosition, 0.25)).toContain(collider);
+
+          body.simulationEnabled = true;
+          physicsScene.step();
+          expect(enter).toHaveBeenCalledTimes(2);
+        } finally {
+          physicsScene.autoSimulation = true;
+          root.destroy();
+        }
+      });
+
       it.each([
         ["static", "static", false],
         ["dynamic", "dynamic", true],
