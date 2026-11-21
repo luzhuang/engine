@@ -3,6 +3,7 @@ export { CapsuleCollider } from "./CapsuleCollider";
 export { CharacterController } from "./CharacterController";
 export { Collider } from "./Collider";
 export { Collision } from "./Collision";
+export type { ContactModification } from "./ContactModification";
 export { ContactPoint } from "./ContactPoint";
 export { HitResult } from "./HitResult";
 export { MeshCollider } from "./MeshCollider";

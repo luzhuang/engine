@@ -15,6 +15,8 @@ label: Physics
 ### 触发器事件
 触发器事件在碰撞器进入、停留或离开触发区域时触发。触发器是将 `isTrigger` 属性设置为 true 的碰撞器。它们检测重叠而不引起物理反应。
 
+两个触发器重叠时，只要至少一个归属于刚体，就可以产生触发事件。两个静态碰撞器之间没有事件。
+
 ## 事件触发关系
 
 碰撞器和触发器之间的详细事件触发关系如下图所示：
@@ -34,10 +36,12 @@ label: Physics
 
 ## 事件回调
 
-当两个碰撞器发生碰撞或触发器重叠时，会调用每个碰撞器自身所在实体上挂载的[脚本](/docs/script/script)中的回调函数。子实体上的碰撞器只通知该子实体上的脚本，不会通知其刚体所在实体。
+碰撞和触发器回调会发送到碰撞器所在实体及其所属刚体的实体。如果两者是同一个实体，每个脚本只调用一次。
 
 - 触发器回调接收 `(other, self)`：另一个碰撞器，以及本脚本所在实体上接收事件的碰撞器。
-- 碰撞回调接收一个 [Collision](/apis/core/#Collision)：`collision.collider` 是另一个碰撞器，`collision.selfCollider` 是接收事件的碰撞器。`getContacts()` 返回的接触点法线和冲量从另一个碰撞器指向接收者。Collision 数据只在回调期间有效，需要保留的数据请自行复制。
+- 碰撞回调接收一个 [Collision](/apis/core/#Collision)。`collider` 是对方碰撞器，`selfCollider` 是接收事件的碰撞器，`rigidbody` 是对方碰撞器所属的刚体，没有时为 `null`。
+- 用 `getContact(index, out)` 将指定接触点写入可复用的 `ContactPoint`，或用 `getContacts(outContacts)` 批量读取。接触点法线和冲量指向接收者。`impulse` 是各接触点报告的冲量之和。PhysX 只报告法向冲量。
+- `relativeVelocity` 是接触求解前对方刚体的世界空间线速度减去接收方的世界空间线速度。扫掠式 CCD 和离开事件不提供该采样，返回 `null`。回调结束后还要使用的数据请在回调中复制。
 
 ### 碰撞器事件回调
 | 事件名 | 触发时机 |
@@ -89,3 +93,23 @@ class EventHandler extends Script {
   }
 }
 ```
+
+## 修改接触
+
+在任一碰撞器上开启 `Collider.contactModificationEnabled`，再设置 `scene.physics.contactModifier`，即可在求解器施加冲量之前修改接触。例如，忽略下面两个碰撞器之间的全部接触，可让它们彼此穿过。
+
+```typescript
+platform.contactModificationEnabled = true;
+scene.physics.contactModifier = (contacts) => {
+  for (let pair = 0; pair < contacts.pairCount; pair++) {
+    const first = contacts.getCollider(pair, 0);
+    const second = contacts.getCollider(pair, 1);
+    if ((first === platform && second === player) || (first === player && second === platform)) {
+      const count = contacts.getContactCount(pair);
+      for (let contact = 0; contact < count; contact++) contacts.ignoreContact(pair, contact);
+    }
+  }
+};
+```
+
+接触批次仅在回调中有效。在回调内读写接触数据，场景变更等物理步结束后再执行。`contacts.isCCD` 表示接触来自 CCD 扫掠。扫掠接触支持修改接触点、法线、反弹系数和最大冲量。离散接触还支持修改分离距离、摩擦、目标速度、逆质量和逆惯量缩放。将场景回调设为 `null` 即可移除它。

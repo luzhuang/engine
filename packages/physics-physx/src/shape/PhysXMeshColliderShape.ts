@@ -1,8 +1,33 @@
 import { MeshColliderShapeCookingFlag, Vector3 } from "@galacean/engine";
-import { IMeshColliderShape } from "@galacean/engine-design";
-import { PhysXPhysics } from "../PhysXPhysics";
+import { IMeshColliderShape, IMeshColliderSource } from "@galacean/engine-design";
+import type { PhysXPhysics } from "../PhysXPhysics";
 import { PhysXPhysicsMaterial } from "../PhysXPhysicsMaterial";
 import { PhysXColliderShape } from "./PhysXColliderShape";
+
+export type PhysXMeshCookCache = WeakMap<object, Map<number, CookedMeshLease>>;
+
+class CookedMeshLease {
+  private _users = 1;
+
+  constructor(
+    readonly mesh: { release(): void },
+    readonly version: number,
+    private readonly _variants: Map<number, CookedMeshLease>,
+    private readonly _variant: number
+  ) {}
+
+  retain(): CookedMeshLease {
+    this._users++;
+    return this;
+  }
+
+  release(): void {
+    if (--this._users === 0) {
+      if (this._variants.get(this._variant) === this) this._variants.delete(this._variant);
+      this.mesh.release();
+    }
+  }
+}
 
 /**
  * Mesh collider shape in PhysX.
@@ -10,14 +35,14 @@ import { PhysXColliderShape } from "./PhysXColliderShape";
 export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshColliderShape {
   private static readonly _tightBoundsFlag = 1; // eTIGHT_BOUNDS = 1 (1<<0)
 
-  private _pxMesh: any = null;
+  private _meshLease!: CookedMeshLease;
+  private _doubleSided = false;
   private readonly _isConvex: boolean;
 
   constructor(
     physXPhysics: PhysXPhysics,
     uniqueID: number,
-    positions: Vector3[],
-    indices: Uint8Array | Uint16Array | Uint32Array | null,
+    source: IMeshColliderSource,
     isConvex: boolean,
     material: PhysXPhysicsMaterial,
     cookingFlags: number,
@@ -26,22 +51,20 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     super(physXPhysics);
     this._isConvex = isConvex;
 
-    const pxMesh = this._cookMesh(positions, indices, cookingFlags);
-    if (!pxMesh) {
-      return;
-    }
+    const lease = this._acquireMesh(source, cookingFlags, scale);
+    if (!lease) return;
 
-    const pxGeometry = this._createGeometry(pxMesh, scale);
+    const pxGeometry = this._createGeometry(lease.mesh, scale);
     const pxShape = this._createShape(pxGeometry, material);
 
     if (!pxShape) {
       pxGeometry.delete();
-      pxMesh.release();
+      lease.release();
       return;
     }
 
     this._id = uniqueID;
-    this._pxMesh = pxMesh;
+    this._meshLease = lease;
     this._pxGeometry = pxGeometry;
     this._pxShape = pxShape;
     this._pxShape.setUUID(uniqueID);
@@ -50,42 +73,60 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
   /**
    * {@inheritDoc IMeshColliderShape.setMeshData }
    */
-  setMeshData(
-    positions: Vector3[],
-    indices: Uint8Array | Uint16Array | Uint32Array | null,
-    cookingFlags: number,
-    scale: Vector3
-  ): boolean {
-    const pxMesh = this._cookMesh(positions, indices, cookingFlags);
-    if (!pxMesh) {
-      return false;
-    }
+  setMeshData(source: IMeshColliderSource, cookingFlags: number, scale: Vector3): boolean {
+    const lease = this._acquireMesh(source, cookingFlags, scale);
+    if (!lease) return false;
 
-    this._updateGeometry(pxMesh, scale);
-    this._pxMesh.release();
-    this._pxMesh = pxMesh;
+    this._updateGeometry(lease.mesh, scale);
+    this._meshLease.release();
+    this._meshLease = lease;
     return true;
+  }
+
+  /** {@inheritDoc IMeshColliderShape.setDoubleSided } */
+  setDoubleSided(value: boolean, scale: Vector3): void {
+    this._doubleSided = value;
+    this._updateGeometry(this._meshLease.mesh, scale);
   }
 
   /**
    * {@inheritDoc IMeshColliderShape.setScale }
    */
   setScale(scale: Vector3): void {
-    this._updateGeometry(this._pxMesh, scale);
+    this._updateGeometry(this._meshLease.mesh, scale);
   }
 
   /**
    * {@inheritDoc IColliderShape.destroy }
    */
   override destroy(): void {
-    this._pxMesh.release();
     super.destroy();
+    this._meshLease.release();
+  }
+
+  private _acquireMesh(source: IMeshColliderSource, cookingFlags: number, scale: Vector3): CookedMeshLease | null {
+    const cache = this._physXPhysics._meshCookCache;
+    let variants = cache.get(source.key);
+    if (source.refresh) variants?.clear();
+    // PhysX triangle geometry handles mirrored scale. Convex hulls bake the reflection into vertices.
+    const reflection = this._isConvex ? 8 | (scale.x < 0 ? 1 : 0) | (scale.y < 0 ? 2 : 0) | (scale.z < 0 ? 4 : 0) : 0;
+    const variant = (cookingFlags << 4) | reflection;
+    const cached = variants?.get(variant);
+    if (cached?.version === source.version) return cached.retain();
+
+    const mesh = this._cookMesh(source.positions, source.indices, cookingFlags, scale);
+    if (!mesh) return null;
+    if (!variants) cache.set(source.key, (variants = new Map()));
+    const lease = new CookedMeshLease(mesh, source.version, variants, variant);
+    variants.set(variant, lease);
+    return lease;
   }
 
   private _cookMesh(
     positions: Vector3[],
     indices: Uint8Array | Uint16Array | Uint32Array | null,
-    cookingFlags: number
+    cookingFlags: number,
+    scale: Vector3
   ): any | null {
     const {
       _physX: physX,
@@ -105,7 +146,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     physX.setCookingMeshPreprocessParams(cookingParams, preprocessFlags);
     cooking.setParams(cookingParams);
 
-    const verticesPtr = this._allocatePositions(positions);
+    const verticesPtr = this._allocatePositions(positions, scale);
     if (!verticesPtr) return null;
     let pxMesh: any;
 
@@ -164,7 +205,7 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
     }
   }
 
-  private _allocatePositions(positions: Vector3[]): number {
+  private _allocatePositions(positions: Vector3[], scale: Vector3): number {
     const physX = this._physXPhysics._physX;
     const length = positions.length;
     const ptr = physX._malloc(length * 3 * 4);
@@ -173,13 +214,17 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
       return 0;
     }
     const view = new Float32Array(physX.HEAPF32.buffer, ptr, length * 3);
+    // Convex meshes only accept positive geometry scales; apply reflections to their cook input.
+    const xSign = this._isConvex && scale.x < 0 ? -1 : 1;
+    const ySign = this._isConvex && scale.y < 0 ? -1 : 1;
+    const zSign = this._isConvex && scale.z < 0 ? -1 : 1;
     let i = 0;
     for (let offset = 0; i < length; i++, offset += 3) {
       const point = positions[i];
       if (!point) break;
-      const x = Math.fround(point.x);
-      const y = Math.fround(point.y);
-      const z = Math.fround(point.z);
+      const x = Math.fround(point.x * xSign);
+      const y = Math.fround(point.y * ySign);
+      const z = Math.fround(point.z * zSign);
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) break;
       view[offset] = x;
       view[offset + 1] = y;
@@ -204,11 +249,15 @@ export class PhysXMeshColliderShape extends PhysXColliderShape implements IMeshC
   private _createGeometry(pxMesh: any, scale: Vector3): any {
     const physX = this._physXPhysics._physX;
     const { x: scaleX, y: scaleY, z: scaleZ } = scale;
-    const meshFlag = this._isConvex ? PhysXMeshColliderShape._tightBoundsFlag : 0;
-
     return this._isConvex
-      ? physX.createConvexMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, meshFlag)
-      : physX.createTriMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, meshFlag);
+      ? physX.createConvexMeshGeometry(
+          pxMesh,
+          Math.abs(scaleX),
+          Math.abs(scaleY),
+          Math.abs(scaleZ),
+          PhysXMeshColliderShape._tightBoundsFlag
+        )
+      : physX.createTriMeshGeometry(pxMesh, scaleX, scaleY, scaleZ, this._doubleSided ? 2 : 0);
   }
 
   private _updateGeometry(pxMesh: any, scale: Vector3): void {

@@ -52,6 +52,13 @@ export class Engine extends EventDispatcher {
   static _physicalObjectsMap: Record<number, Collider> = {};
   /** @internal */
   static _nativePhysics: IPhysics;
+  /** @internal */
+  static _modifyingContacts = false;
+
+  /** @internal */
+  static _assertOutsideContactModifier(): void {
+    if (this._modifyingContacts) throw new Error("This operation is unavailable in a contact modifier.");
+  }
 
   /** Input manager of Engine. */
   readonly inputManager: InputManager;
@@ -310,6 +317,7 @@ export class Engine extends EventDispatcher {
    * Update the engine loop manually. If you call engine.run(), you generally don't need to call this function.
    */
   update(): void {
+    Engine._assertOutsideContactModifier();
     this._canvas._pumpPendingResolution();
 
     const time = this._time;
@@ -568,6 +576,7 @@ export class Engine extends EventDispatcher {
       return;
     }
 
+    Engine._assertOutsideContactModifier();
     if (this._frameInProcess) {
       this._waitingDestroy = true;
     } else {

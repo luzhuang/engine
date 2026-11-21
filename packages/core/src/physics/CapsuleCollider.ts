@@ -1,4 +1,4 @@
-import { ICapsuleColliderShape } from "@galacean/engine-design";
+import { ICapsuleColliderShape, ISphereColliderShape } from "@galacean/engine-design";
 import { Vector3 } from "@galacean/engine-math";
 import { Engine } from "../Engine";
 import { Collider } from "./Collider";
@@ -6,8 +6,8 @@ import { ColliderShapeUpAxis } from "./enums/ColliderShapeUpAxis";
 
 /**
  * A capsule-shaped collider.
- * @remarks The absolute world scale along {@link direction} scales the cylindrical section. The larger scale across
- * the other two axes scales the radius. Simulation and queries require both effective dimensions to be positive.
+ * @remarks The absolute world scale along {@link direction} scales the total height. The larger scale across
+ * the other two axes scales the radius. When the world height is at most the world diameter, the shape is a sphere.
  */
 export class CapsuleCollider extends Collider {
   private _radius = 1;
@@ -38,7 +38,7 @@ export class CapsuleCollider extends Collider {
   /**
    * The total height in local units, including both caps. Finite negative values are clamped to 0.
    * @defaultValue 4
-   * @remarks A height at or below twice the radius excludes the capsule from simulation and queries.
+   * @remarks A zero world height disables the shape.
    * @throws When the value is not finite.
    */
   get height(): number {
@@ -73,7 +73,10 @@ export class CapsuleCollider extends Collider {
     }
   }
 
-  protected override _syncGeometry(shape: ICapsuleColliderShape | null, scale: Vector3): ICapsuleColliderShape | null {
+  protected override _syncGeometry(
+    shape: ICapsuleColliderShape | ISphereColliderShape | null,
+    scale: Vector3
+  ): ICapsuleColliderShape | ISphereColliderShape | null {
     const direction = this._direction;
     let radialScale: number;
     let heightScale: number;
@@ -92,20 +95,30 @@ export class CapsuleCollider extends Collider {
         break;
     }
     const radius = this._radius * radialScale;
-    const halfHeight = (this._height * 0.5 - this._radius) * heightScale;
-    if (!Collider._isValidPositiveFloat32(radius) || !Collider._isValidPositiveFloat32(halfHeight)) {
+    const totalHalfHeight = this._height * heightScale * 0.5;
+    if (!Collider._isValidPositiveFloat32(radius) || !Collider._isValidPositiveFloat32(totalHalfHeight)) {
       return null;
     }
-    if (!shape) {
-      return Engine._nativePhysics.createCapsuleColliderShape(
-        this._id,
-        radius,
-        halfHeight,
-        this._getNativeMaterial(),
-        direction
-      );
+    const halfHeight = Math.fround(totalHalfHeight - radius);
+    if (halfHeight <= 0) {
+      if (shape && "setRadius" in shape) {
+        shape.setRadius(radius);
+        return shape;
+      }
+      const sphere = Engine._nativePhysics.createSphereColliderShape(this._id, radius, this._getNativeMaterial());
+      return !shape || this._replaceNativeShape(this._initializeNativeShape(sphere)) ? sphere : null;
     }
-    shape.setDimensions(radius, halfHeight, direction);
-    return shape;
+    if (shape && "setDimensions" in shape) {
+      shape.setDimensions(radius, halfHeight, direction);
+      return shape;
+    }
+    const capsule = Engine._nativePhysics.createCapsuleColliderShape(
+      this._id,
+      radius,
+      halfHeight,
+      this._getNativeMaterial(),
+      direction
+    );
+    return !shape || this._replaceNativeShape(this._initializeNativeShape(capsule)) ? capsule : null;
   }
 }

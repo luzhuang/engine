@@ -267,6 +267,7 @@ export class Entity extends EngineObject {
    * @returns The new component
    */
   addComponent<T extends ComponentConstructor>(type: T, ...args: ComponentArguments<T>): InstanceType<T> {
+    Engine._assertOutsideContactModifier();
     const isTransform = Entity._isTransformType(type);
     if (isTransform) {
       Entity._checkTransformDependencies(type);
@@ -791,6 +792,7 @@ export class Entity extends EngineObject {
 
   /** @internal */
   _assertActivationIdle(): void {
+    Engine._assertOutsideContactModifier();
     if (this._activeChangedComponents) {
       throw new Error("Cannot change an entity's activation while its lifecycle callbacks are running.");
     }

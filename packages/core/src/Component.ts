@@ -2,6 +2,7 @@ import { IReferable } from "./asset/IReferable";
 import { EngineObject } from "./base";
 import { CloneMode, ignoreClone, registerDefaultCloneMode } from "./clone/CloneDecorators";
 import { ComponentsDependencies } from "./ComponentsDependencies";
+import { Engine } from "./Engine";
 import { ComponentConstructor, Entity } from "./Entity";
 import { ActiveChangeFlag } from "./enums/ActiveChangeFlag";
 import { Scene } from "./Scene";
@@ -39,6 +40,7 @@ export class Component extends EngineObject {
 
   set enabled(value: boolean) {
     if (value !== this._enabled) {
+      Engine._assertOutsideContactModifier();
       this._enabled = value;
       this._syncSceneRegistration();
       if (this._entity.isActiveInHierarchy) {

@@ -46,10 +46,18 @@ label: Physics
 | [**center**](/apis/core/#Collider-center) | 形状在实体局部空间中的中心，会乘以实体的世界缩放 | (0, 0, 0) |
 | [**rotation**](/apis/core/#Collider-rotation) | 形状的局部旋转，单位为角度 | (0, 0, 0) |
 | [**isTrigger**](/apis/core/#Collider-isTrigger) | 是否为触发器。触发器只报告重叠，不产生碰撞响应。见[碰撞事件](/docs/physics/collider/event) | false |
+| [**contactEventsEnabled**](/apis/core/#Collider-contactEventsEnabled) | 当前碰撞器及其所属刚体的脚本是否接收此形状的碰撞回调 | true |
+| [**contactModificationEnabled**](/apis/core/#Collider-contactModificationEnabled) | 场景是否可以修改该碰撞器参与的实体接触 | false |
 | [**material**](/apis/core/#Collider-material) | 指定的[物理材质](#物理材质)，为 `null` 时使用共享默认材质 | null |
 | [**collisionLayer**](/apis/core/#Collider-collisionLayer) | 碰撞器所属的碰撞层，只能是单个层。见[碰撞层](/docs/physics/collider/collisionLayer) | Layer.Layer0 |
-| [**contactOffset**](/apis/core/#Collider-contactOffset) | 接触偏移。非有限值会抛出异常，负值会被限制为 0 | 0.02 |
+| [**contactOffset**](/apis/core/#Collider-contactOffset) | 以世界单位表示的正接触偏移，用于决定两个碰撞器可以在多远处产生接触 | 0.02 |
+| [**restOffset**](/apis/core/#Collider-restOffset) | 以世界单位表示的有符号静止偏移，用于决定两个碰撞器静止时的间距 | 0 |
+| [**includeLayers**](/apis/core/#Collider-includeLayers)、[**excludeLayers**](/apis/core/#Collider-excludeLayers) | 对当前碰撞器覆盖场景碰撞矩阵，排除优先 | 0 |
 | [**attachedRigidbody**](/apis/core/#Collider-attachedRigidbody) | 只读。拥有该碰撞器的刚体，没有时为 `null` | - |
+
+形状碰撞器的两个偏移会一起生效。两个碰撞器的接触距离和静止距离分别由对应的偏移相加得到。若转换为 Float32 后静止偏移大于或等于接触偏移，该形状会退出模拟和查询，修正后恢复。角色控制器只使用接触偏移作为移动时的缓冲距离。
+
+双方都关闭接触事件时，PhysX 继续求解接触，并跳过事件报告。在持续接触中重新开启回调，会从下一次实际事件开始接收，可能先收到 Stay 或 Exit。触发器和角色控制器移动命中按各自的设置派发。
 
 形状尺寸跟随实体的世界缩放。实体在非等比缩放的祖先下旋转可能产生切变，物理会忽略切变。开启日志时，碰撞器会提示一次。
 
@@ -90,6 +98,7 @@ PlaneCollider 没有形状属性。它是朝向实体局部 +Y 轴的无限平�
 | :-- | :-- | :-- |
 | [**mesh**](/apis/core/#MeshCollider-mesh) | 用于碰撞的 [ModelMesh](/apis/core/#ModelMesh)。网格数据在上传后必须保持可访问，三角网格还需要索引；无效网格在同步时会移出模拟与查询，替换为有效网格后自动恢复 | null |
 | [**convex**](/apis/core/#MeshCollider-convex) | 是否使用由网格顶点生成的凸包。非凸网格不可作为触发器，也不可挂在非运动学刚体下；非法组合会在同步时移出模拟与查询，修正后自动恢复 | false |
+| [**doubleSided**](/apis/core/#MeshCollider-doubleSided) | 场景查询可命中三角网格背面 | false |
 | [**cookingFlags**](/apis/core/#MeshCollider-cookingFlags) | 网格烘焙标志 | Cleaning \| VertexWelding |
 
 ## 物理材质

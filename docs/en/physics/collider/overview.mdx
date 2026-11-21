@@ -46,10 +46,18 @@ All Collider components share these properties:
 | [**center**](/apis/core/#Collider-center) | Center of the shape in the Entity's local space, scaled by the Entity's world scale | (0, 0, 0) |
 | [**rotation**](/apis/core/#Collider-rotation) | Local rotation of the shape, in degrees | (0, 0, 0) |
 | [**isTrigger**](/apis/core/#Collider-isTrigger) | Whether the Collider is a trigger, which reports overlaps without a collision response. See [Collision Events](/en/docs/physics/collider/event) | false |
+| [**contactEventsEnabled**](/apis/core/#Collider-contactEventsEnabled) | Whether scripts on this Collider and its attached Rigidbody receive collision callbacks for this shape | true |
+| [**contactModificationEnabled**](/apis/core/#Collider-contactModificationEnabled) | Whether the scene can modify solid contacts involving this Collider | false |
 | [**material**](/apis/core/#Collider-material) | The assigned [physics material](#physics-material), or `null` to use the shared default material | null |
 | [**collisionLayer**](/apis/core/#Collider-collisionLayer) | The collision layer of this Collider, a single layer only. See [Collision Layer](/en/docs/physics/collider/collisionLayer) | Layer.Layer0 |
-| [**contactOffset**](/apis/core/#Collider-contactOffset) | Contact offset. Non-finite values throw; negative values are clamped to 0 | 0.02 |
+| [**contactOffset**](/apis/core/#Collider-contactOffset) | Positive distance in world units that contributes to how early a pair can generate contacts | 0.02 |
+| [**restOffset**](/apis/core/#Collider-restOffset) | Signed distance in world units that contributes to a pair's resting separation | 0 |
+| [**includeLayers**](/apis/core/#Collider-includeLayers), [**excludeLayers**](/apis/core/#Collider-excludeLayers) | Per-collider overrides for the scene collision matrix. Exclusions take precedence | 0 |
 | [**attachedRigidbody**](/apis/core/#Collider-attachedRigidbody) | Read-only. The Rigidbody that owns this Collider, or `null` | - |
+
+For shape colliders, both offsets are applied together. The contact and rest distances for a pair are the sums of the corresponding offsets on each collider. If a collider's rest offset is greater than or equal to its contact offset after Float32 conversion, the shape is excluded from simulation and queries until the values are corrected. Character controllers only use the contact offset, as the movement skin.
+
+When both colliders disable contact events, PhysX solves the contact and skips its user report. Re-enabling callbacks during a contact resumes with the next event, which can be Stay or Exit. Trigger and character controller move callbacks follow their own settings.
 
 Shape sizes follow the Entity's world scale. Physics ignores shear, which can occur when an Entity rotates under a non-uniformly scaled ancestor. With logging enabled, the Collider warns once.
 
@@ -90,6 +98,7 @@ PlaneCollider has no shape properties. It is an infinite plane facing the Entity
 | :-- | :-- | :-- |
 | [**mesh**](/apis/core/#MeshCollider-mesh) | The [ModelMesh](/apis/core/#ModelMesh) used for collision. Its data must stay accessible after upload, and a triangle mesh also needs indices; invalid meshes are excluded from simulation and queries until replaced with a valid mesh | null |
 | [**convex**](/apis/core/#MeshCollider-convex) | Whether to use a convex hull generated from the mesh vertices. A non-convex mesh cannot be a trigger or belong to a non-kinematic Rigidbody; invalid combinations are excluded until resolved | false |
+| [**doubleSided**](/apis/core/#MeshCollider-doubleSided) | Include triangle back faces in scene queries | false |
 | [**cookingFlags**](/apis/core/#MeshCollider-cookingFlags) | Mesh cooking flags | Cleaning \| VertexWelding |
 
 ## Physics Material

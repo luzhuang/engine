@@ -9,6 +9,8 @@ import {
   Entity,
   HitResult,
   Layer,
+  PhysicsMaterial,
+  PhysicsMaterialCombineMode,
   PhysicsScene,
   Scene,
   Script,
@@ -168,6 +170,39 @@ describe("Physics Test", () => {
       expect(enginePhysX.sceneManager.scenes[0].physics.fixedTimeStep).to.eq(fixedTimeStep);
     });
 
+    it.each([false, true])("routes compound collider events to its owner when isTrigger=%s", (isTrigger) => {
+      const scene = enginePhysX.sceneManager.activeScene;
+      const physicsScene = scene.physics;
+      const root = scene.createRootEntity();
+      const body = root.createChild();
+      body.addComponent(Rigidbody).useGravity = false;
+      const child = body.createChild();
+      const collider = child.addComponent(BoxCollider);
+      collider.isTrigger = isTrigger;
+      const other = root.createChild().addComponent(BoxCollider);
+      const receivers: Entity[] = [];
+      class ContactListener extends Script {
+        onCollisionEnter(collision: Collision): void {
+          this.record(collision.selfCollider, collision.collider);
+        }
+        onTriggerEnter(other: Collider, self: Collider): void {
+          this.record(self, other);
+        }
+        private record(self: Collider, otherCollider: Collider): void {
+          if (self === collider && otherCollider === other) receivers.push(this.entity);
+        }
+      }
+
+      try {
+        child.addComponent(ContactListener);
+        body.addComponent(ContactListener);
+        physicsScene._update(physicsScene.fixedTimeStep);
+        expect(receivers).toEqual([child, body]);
+      } finally {
+        root.destroy();
+      }
+    });
+
     it("keeps nested rigidbody poses independent after reparenting, disabling a body, and changing scenes", () => {
       const root = enginePhysX.sceneManager.activeScene.createRootEntity();
       const destination = new Scene(enginePhysX);
@@ -290,6 +325,54 @@ describe("Physics Test", () => {
         physicsScene.gravity = gravity;
         bufferContactEvent.mockRestore();
         root.destroy();
+      }
+    });
+
+    it.each(["shape", "controller"] as const)("skips native contact reports for a muted %s pair", (kind) => {
+      const scene = new Scene(enginePhysX);
+      enginePhysX.sceneManager.addScene(scene);
+      const physics = scene.physics;
+      physics.gravity.set(0, 0, 0);
+      const material = new PhysicsMaterial(enginePhysX);
+      material.bounciness = 1;
+      material.bounceCombine = PhysicsMaterialCombineMode.Maximum;
+
+      const target = scene.createRootEntity("target");
+      const wall = kind === "shape" ? target.addComponent(BoxCollider) : target.addComponent(CharacterController);
+      wall.material = material;
+      wall.contactEventsEnabled = false;
+      target.addComponent(CollisionConsumerScript);
+      const projectile = scene.createRootEntity("projectile");
+      projectile.transform.setPosition(-1.1, 0, 0);
+      const sphere = projectile.addComponent(SphereCollider);
+      sphere.material = material;
+      sphere.contactEventsEnabled = false;
+      const body = projectile.addComponent(Rigidbody);
+      const bufferContactEvent = vi.spyOn((physics as any)._nativePhysicsScene, "_bufferContactEvent");
+      try {
+        physics._update(physics.fixedTimeStep);
+        if (wall instanceof CharacterController) {
+          wall.geometry = CharacterControllerGeometry.Box;
+          physics._update(physics.fixedTimeStep);
+        } else {
+          wall.isTrigger = true;
+          wall.isTrigger = false;
+        }
+        body.linearVelocity.set(3, 0, 0);
+        for (let step = 0; step < 20; step++) physics._update(physics.fixedTimeStep);
+        expect(body.linearVelocity.x).toBeCloseTo(-3);
+        expect(bufferContactEvent).not.toHaveBeenCalled();
+
+        wall.contactEventsEnabled = true;
+        projectile.transform.setPosition(-1.1, 0, 0);
+        body.linearVelocity.set(3, 0, 0);
+        for (let step = 0; step < 20; step++) physics._update(physics.fixedTimeStep);
+        expect(body.linearVelocity.x).toBeCloseTo(-3);
+        expect(bufferContactEvent).toHaveBeenCalled();
+      } finally {
+        bufferContactEvent.mockRestore();
+        scene.destroy();
+        material.destroy();
       }
     });
 

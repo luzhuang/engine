@@ -27,7 +27,11 @@ export class PhysXCharacterController implements ICharacterController {
   private _worldPosition = new Vector3();
   private _contactOffset = 0.02;
   private _collisionLayer = 0;
+  private _includeLayers = 0;
+  private _excludeLayers = 0;
   private _isSceneQuery = true;
+  private _contactEventsEnabled = true;
+  private _contactModificationEnabled = false;
   private _stepOffset = 0.5;
   private _nonWalkableMode = 0;
   private _upDirection = new Vector3(0, 1, 0);
@@ -109,9 +113,31 @@ export class PhysXCharacterController implements ICharacterController {
   /**
    * {@inheritDoc ICharacterController.setIsSceneQuery }
    */
+  /** {@inheritDoc ICharacterController.setLayerOverrides } */
+  setLayerOverrides(include: number, exclude: number): void {
+    this._includeLayers = include;
+    this._excludeLayers = exclude;
+    this._pxController?.setLayerOverrides(include, exclude);
+  }
+
+  /**
+   * {@inheritDoc ICharacterController.setIsSceneQuery }
+   */
   setIsSceneQuery(value: boolean): void {
     this._isSceneQuery = value;
     this._pxController?.setSceneQueryEnabled(value);
+  }
+
+  /** {@inheritDoc ICharacterController.setContactEventsEnabled } */
+  setContactEventsEnabled(value: boolean): void {
+    this._contactEventsEnabled = value;
+    this._pxController?.setContactEventsEnabled(value);
+  }
+
+  /** {@inheritDoc ICharacterController.setContactModificationEnabled } */
+  setContactModificationEnabled(value: boolean): void {
+    this._contactModificationEnabled = value;
+    this._pxController?.setContactModificationEnabled(value);
   }
 
   /**
@@ -264,6 +290,11 @@ export class PhysXCharacterController implements ICharacterController {
     this._pxController = pxController;
     pxController.setUUID(this._id);
     pxController.setSceneQueryEnabled(this._isSceneQuery);
+    if (!this._contactEventsEnabled) pxController.setContactEventsEnabled(false);
+    if (this._contactModificationEnabled) pxController.setContactModificationEnabled(true);
+    if (this._includeLayers || this._excludeLayers) {
+      pxController.setLayerOverrides(this._includeLayers, this._excludeLayers);
+    }
     const actor = pxController.getActor();
     physX.setGroup(actor, this._collisionLayer);
     actor.delete();

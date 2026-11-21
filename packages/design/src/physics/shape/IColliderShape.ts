@@ -14,10 +14,11 @@ export interface IColliderShape {
   setLocalPose(position: Vector3, rotation: Quaternion): void;
 
   /**
-   * Sets the contact offset.
-   * @param offset - contact offset
+   * Apply the contact and rest offsets together.
+   * @param contactOffset - A positive contact distance in world units
+   * @param restOffset - A signed rest distance in world units, strictly below the contact offset in Float32
    */
-  setContactOffset(offset: number): void;
+  setContactOffsets(contactOffset: number, restOffset: number): void;
 
   /**
    * Set physics material on shape.
@@ -31,6 +32,9 @@ export interface IColliderShape {
    */
   setCollisionLayer(layer: number): void;
 
+  /** Sets explicit collision layer inclusions and exclusions. Exclusions have precedence. */
+  setLayerOverrides(include: number, exclude: number): void;
+
   /**
    * Set trigger or not.
    * @param value - True for TriggerShape, false for SimulationShape
@@ -42,6 +46,18 @@ export interface IColliderShape {
    * @param value - Whether the shape participates in scene queries
    */
   setIsSceneQuery(value: boolean): void;
+
+  /** Sets whether this shape requests contact events. Either shape in a pair can request reporting. */
+  setContactEventsEnabled(value: boolean): void;
+
+  /** Allows a scene contact modifier to edit solid contacts involving this collider. */
+  setContactModificationEnabled(value: boolean): void;
+
+  /** Writes the exact axis-aligned bounds of the world-space shape. */
+  getWorldBounds(outMin: Vector3, outMax: Vector3): void;
+
+  /** Returns the penetration depth and writes the direction to separate this shape from the other. */
+  computePenetration(other: IColliderShape, outDirection: Vector3): number;
 
   /**
    * Query the closest point on the shape.

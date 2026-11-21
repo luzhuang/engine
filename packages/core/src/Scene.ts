@@ -413,6 +413,7 @@ export class Scene extends EngineObject {
    * @internal
    */
   _assertActivationIdle(active: boolean): void {
+    Engine._assertOutsideContactModifier();
     if (this._activeProcessCount !== 0 && !this._destroyed) {
       const roots = this._rootEntities;
       for (let i = roots.length - 1; i >= 0; i--) {

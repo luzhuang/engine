@@ -132,6 +132,20 @@ export class CharacterController extends Collider {
   }
 
   /**
+   * The rest offset is unsupported on character controllers and always reads as zero.
+   * @throws When set to a nonzero value.
+   */
+  override get restOffset(): number {
+    return 0;
+  }
+
+  override set restOffset(value: number) {
+    if (value !== 0) {
+      throw new RangeError("CharacterController does not support restOffset.");
+    }
+  }
+
+  /**
    * The step height used when climbing obstacles, in world units. Finite negative values are clamped to 0.
    * @defaultValue 0.5
    * @remarks PhysX excludes the controller from simulation and queries when the step height rounds to a non-finite
@@ -314,9 +328,9 @@ export class CharacterController extends Collider {
     }
 
     const controller = <ICharacterController>(this._native ||= this._createNative());
-    const centerX = colliderCenter.x * scale.x;
-    const centerY = colliderCenter.y * scale.y;
-    const centerZ = colliderCenter.z * scale.z;
+    const centerX = colliderCenter.x * lossyScale.x;
+    const centerY = colliderCenter.y * lossyScale.y;
+    const centerZ = colliderCenter.z * lossyScale.z;
     const syncedCenter = this._syncedCenter;
     const nativePosition = this._nativePosition;
     if (
@@ -364,26 +378,20 @@ export class CharacterController extends Collider {
     const controller = Engine._nativePhysics.createCharacterController(this._id, this._getNativeMaterial());
     controller.setContactOffset(this.contactOffset);
     controller.setCollisionLayer(this._collisionLayerIndex);
+    if (this._includeLayers || this._excludeLayers) {
+      controller.setLayerOverrides(this._includeLayers, this._excludeLayers);
+    }
     controller.setIsSceneQuery(this.isSceneQuery);
+    if (!this.contactEventsEnabled) controller.setContactEventsEnabled(false);
+    if (this.contactModificationEnabled) controller.setContactModificationEnabled(true);
     controller.setNonWalkableMode(this._nonWalkableMode);
     controller.setUpDirection(this._upDirection);
     controller.setSlopeLimit(this._slopeLimit);
     return controller;
   }
 
-  /**
-   * PhysX requires a positive contact offset for character controllers.
-   * @throws When the value is not positive and finite.
-   */
-  protected override _validateContactOffset(value: number): number {
-    if (!(value > 0 && Number.isFinite(value))) {
-      throw new Error("CharacterController contactOffset must be positive and finite.");
-    }
-    return value;
-  }
-
-  protected override _onContactOffsetChanged(value: number): void {
-    super._onContactOffsetChanged(value);
+  protected override _onContactOffsetsChanged(): void {
+    (<ICharacterController | null>this._native)?.setContactOffset(this.contactOffset);
     this._setGeometryDirty();
   }
 

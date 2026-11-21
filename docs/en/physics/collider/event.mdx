@@ -15,6 +15,8 @@ Collision events are triggered when two colliders in collider mode physically in
 ### Trigger Events
 Trigger events are triggered when a collider enters, stays in, or exits a trigger area. Triggers are Colliders with the `isTrigger` property set to true. They detect overlaps without causing physical reactions.
 
+Two triggers can report an overlap when at least one belongs to a Rigidbody. A pair of static colliders cannot report events.
+
 ## Event Trigger Relationship
 
 The detailed event trigger relationship between colliders and triggers is illustrated below:
@@ -34,10 +36,12 @@ Trigger mode is set per Collider component. An Entity, or a Rigidbody with sever
 
 ## Event Callbacks
 
-When two colliders collide or trigger overlaps occur, callback functions in [scripts](/en/docs/script/script) on each Collider's own Entity are called. A Collider on a child Entity reports to scripts on that child Entity, not to the Entity of its Rigidbody.
+Collision and trigger callbacks reach scripts on the Collider's Entity and on its owning Rigidbody's Entity. If those are the same Entity, each script is called once.
 
-- Trigger callbacks receive `(other, self)`: the other Collider and the Collider on this script's Entity that received the event.
-- Collision callbacks receive a [Collision](/apis/core/#Collision): `collision.collider` is the other Collider and `collision.selfCollider` is the receiving one. `getContacts()` returns contact points whose normals and impulses point from the other Collider toward the receiver. The Collision data is only valid during the callback; copy what you need to keep.
+- Trigger callbacks receive `(other, self)`: the other Collider and the Collider on this script's Entity or owned by its Rigidbody.
+- Collision callbacks receive a [Collision](/apis/core/#Collision). `collider` is the other Collider, `selfCollider` is the receiving Collider, and `rigidbody` is the other Collider's Rigidbody, if any.
+- Write a contact into a reusable `ContactPoint` with `getContact(index, out)`, or read all contacts with `getContacts(outContacts)`. Contact normals and impulses point toward the receiver. `impulse` sums the reported contact impulses. PhysX reports the normal impulses.
+- `relativeVelocity` is the other body's world-space linear velocity minus the receiver's before the contact was solved. Swept CCD and exit reports lack this sample and return `null`. Copy any borrowed Collision data needed after the callback.
 
 ### Collider Event Callbacks
 | Event Name | Trigger Timing |
@@ -90,3 +94,23 @@ class EventHandler extends Script {
   }
 }
 ```
+
+## Modifying contacts
+
+Set `Collider.contactModificationEnabled` on either collider and assign `scene.physics.contactModifier` to edit contacts before the solver applies impulses. For example, these two colliders pass through each other when the callback ignores all their contacts.
+
+```typescript
+platform.contactModificationEnabled = true;
+scene.physics.contactModifier = (contacts) => {
+  for (let pair = 0; pair < contacts.pairCount; pair++) {
+    const first = contacts.getCollider(pair, 0);
+    const second = contacts.getCollider(pair, 1);
+    if ((first === platform && second === player) || (first === player && second === platform)) {
+      const count = contacts.getContactCount(pair);
+      for (let contact = 0; contact < count; contact++) contacts.ignoreContact(pair, contact);
+    }
+  }
+};
+```
+
+The batch is valid only during the callback. Read or modify the batch there, then apply any scene changes after the step. `contacts.isCCD` identifies contacts from a CCD sweep. Swept contacts support editing points, normals, restitution, and maximum impulse. Separation, friction, target velocity, and inverse mass or inertia scales are available for discrete contacts. Assign `null` to remove the scene callback.

@@ -17,7 +17,7 @@ import {
   SphereCollider,
   Transform
 } from "@galacean/engine-core";
-import { Matrix, Ray, Vector3 } from "@galacean/engine-math";
+import { BoundingBox, Matrix, Ray, Vector3 } from "@galacean/engine-math";
 import { WebGLEngine } from "@galacean/engine";
 import { UITransform } from "@galacean/engine-ui";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,6 +67,29 @@ describe("Collider", () => {
     expect(actual.y).toBeCloseTo(y, 4);
     expect(actual.z).toBeCloseTo(z, 4);
   }
+
+  it("uses signed center offsets and supplies synchronized bounds and penetration", () => {
+    const mirrored = root.createChild("mirrored");
+    mirrored.transform.setScale(-2, 1, 1);
+    const box = mirrored.addComponent(BoxCollider);
+    box.center.set(1, 0, 0);
+    const sphereEntity = root.createChild("other");
+    sphereEntity.transform.setPosition(-2.75, 0, 0);
+    const sphere = sphereEntity.addComponent(SphereCollider);
+    sphere.radius = 0.5;
+
+    const bounds = new BoundingBox();
+    expect(box.getBounds(bounds)).toBe(true);
+    expectPoint(bounds.min, -3, -0.5, -0.5);
+    expectPoint(bounds.max, -1, 0.5, 0.5);
+    const direction = new Vector3();
+    expect(sphere.computePenetration(box, direction)).toBeCloseTo(0.75, 4);
+    expectPoint(direction, -1, 0, 0);
+
+    sphereEntity.transform.setPosition(2, 0, 0);
+    expect(sphere.computePenetration(box, direction)).toBe(0);
+    expectPoint(direction, -1, 0, 0);
+  });
 
   it.each([false, true])(
     "keeps a nested Rigidbody independent of its moving parent (parent added last=%s)",
@@ -325,11 +348,9 @@ describe("Collider", () => {
       expect(collider.material).toBe(material);
       expect(collider.contactOffset).toBe(0.3);
 
-      collider.contactOffset = -2;
-      expect(collider.contactOffset).toBe(0);
       collider.contactOffset = 2.7;
       expect(collider.contactOffset).toBe(2.7);
-      for (const value of [NaN, Infinity, -Infinity]) {
+      for (const value of [-2, 0, NaN, Infinity, -Infinity]) {
         expect(() => (collider.contactOffset = value)).toThrow();
         expect(collider.contactOffset).toBe(2.7);
       }
@@ -346,6 +367,60 @@ describe("Collider", () => {
     expect(box.collisionLayer).toBe(Layer.Layer4);
     expect(physics.overlapSphereAll(new Vector3(), 0.1, Layer.Layer4)[0]).toBe(box);
     expect(physics.overlapSphereAll(new Vector3(), 0.1, Layer.Layer0)).toHaveLength(0);
+  });
+
+  it("mutes only the selected collider's contact callbacks, including on its Rigidbody", () => {
+    const target = root.createChild("target");
+    const box = target.addComponent(BoxCollider);
+    box.size.set(2, 2, 2);
+    const other = target.addComponent(CollisionRecorder);
+    const owner = root.createChild("owner");
+    owner.transform.setPosition(-3, 0, 0);
+    const body = owner.addComponent(Rigidbody);
+    body.isKinematic = true;
+    const shape = owner.createChild("shape");
+    const sphere = shape.addComponent(SphereCollider);
+    const receivers = [shape.addComponent(CollisionRecorder), owner.addComponent(CollisionRecorder)];
+
+    expect(sphere.contactEventsEnabled).toBe(true);
+    sphere.contactEventsEnabled = false;
+    update();
+    const move = (x: number) => {
+      body.move(new Vector3(x, 0, 0));
+      update();
+    };
+    for (const x of [-1, -0.75, -0.5]) move(x);
+    expect(other.onCollisionEnter).toHaveBeenCalledOnce();
+    expect(other.onCollisionStay).toHaveBeenCalled();
+    for (const receiver of receivers) {
+      expect(receiver.onCollisionEnter).not.toHaveBeenCalled();
+      expect(receiver.onCollisionStay).not.toHaveBeenCalled();
+    }
+
+    sphere.contactEventsEnabled = true;
+    receivers[0].onCollisionStay.mockImplementationOnce(() => {
+      sphere.contactEventsEnabled = false;
+    });
+    move(0);
+    for (const receiver of receivers) {
+      expect(receiver.onCollisionStay).toHaveBeenCalledOnce();
+      expect(receiver.onCollisionEnter).not.toHaveBeenCalled();
+    }
+    expect(other.onCollisionEnter).toHaveBeenCalledOnce();
+
+    move(0.125);
+    for (const receiver of receivers) expect(receiver.onCollisionStay).toHaveBeenCalledOnce();
+    move(3);
+    move(3.25);
+    expect(other.onCollisionExit).toHaveBeenCalledOnce();
+    for (const receiver of receivers) expect(receiver.onCollisionExit).not.toHaveBeenCalled();
+
+    box.contactEventsEnabled = false;
+    box.isTrigger = true;
+    move(0);
+    move(0.25);
+    expect(other.onTriggerEnter).toHaveBeenCalledOnce();
+    for (const receiver of receivers) expect(receiver.onTriggerEnter).toHaveBeenCalledOnce();
   });
 
   it("keeps scene-query participation independent of trigger mode", () => {
@@ -377,6 +452,88 @@ describe("Collider", () => {
     box.contactOffset = 0.3;
     update();
     expect(recorder.onCollisionEnter).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates the resting separation when both offsets rise or fall", () => {
+    physics.gravity.set(0, -9.81, 0);
+    const plane = root.createChild("floor").addComponent(PlaneCollider);
+    const ball = root.createChild("ball");
+    ball.transform.setPosition(0, 3, 0);
+    ball.addComponent(SphereCollider).radius = 0.5;
+    const body = ball.addComponent(Rigidbody);
+    update();
+
+    for (const [contactOffset, restOffset] of [
+      [0.2, 0.15],
+      [0.02, -0.1]
+    ]) {
+      plane.restOffset = restOffset;
+      plane.contactOffset = contactOffset;
+      ball.transform.setPosition(0, 3, 0);
+      body.linearVelocity.set(0, 0, 0);
+      update(120);
+      expect(ball.transform.worldPosition.y).toBeCloseTo(0.5 + restOffset, 2);
+    }
+  });
+
+  it("excludes equal Float32 offsets from queries and simulation until corrected", () => {
+    const box = root.createChild("box").addComponent(BoxCollider);
+    const probe = root.createChild("probe");
+    probe.transform.setPosition(0.8, 0, 0);
+    probe.addComponent(BoxCollider);
+    probe.addComponent(Rigidbody).useGravity = false;
+    const recorder = probe.addComponent(CollisionRecorder);
+    const ray = new Ray(new Vector3(0, 0, -3), new Vector3(0, 0, 1));
+    const hit = new HitResult();
+    expect(physics.raycast(ray, hit) && hit.collider === box).toBe(true);
+
+    box.contactOffset = 0.2500000001;
+    box.restOffset = 0.25;
+    expect(physics.raycast(ray)).toBe(false);
+    update();
+    expect(recorder.onCollisionEnter).not.toHaveBeenCalled();
+    expect(box.restOffset).toBe(0.25);
+    expect(box.contactOffset).toBe(0.2500000001);
+
+    for (const value of [NaN, 1e40, -Infinity]) {
+      expect(() => (box.restOffset = value)).toThrow(RangeError);
+    }
+    box.restOffset = 0;
+    expect(physics.raycast(ray, hit) && hit.collider === box).toBe(true);
+    update();
+    expect(recorder.onCollisionEnter).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a collider detached when a pose read makes its offsets invalid", () => {
+    const ray = new Ray(new Vector3(0, 0, -3), new Vector3(0, 0, 1));
+    const cast = () => physics.raycast(ray, 5);
+    let invalidateOnRead = false;
+    let nestedHit: boolean | undefined;
+    let collider: BoxCollider;
+    class QueryingTransform extends Transform {
+      override get worldPosition(): Vector3 {
+        if (invalidateOnRead) {
+          invalidateOnRead = false;
+          collider.restOffset = collider.contactOffset;
+          nestedHit = cast();
+        }
+        return super.worldPosition;
+      }
+    }
+
+    const entity = root.createChild();
+    entity.addComponent(QueryingTransform);
+    collider = entity.addComponent(BoxCollider);
+    expect(cast()).toBe(true);
+
+    collider.center.z = 0.1;
+    invalidateOnRead = true;
+    expect(cast()).toBe(false);
+    expect(nestedHit).toBe(false);
+    expect(cast()).toBe(false);
+
+    collider.restOffset = 0;
+    expect(cast()).toBe(true);
   });
 
   it("updates box size through assignment and vector mutation", () => {
@@ -474,7 +631,7 @@ describe("Collider", () => {
     expectPoint(closest, 11, 22, 33);
   });
 
-  it("uses the largest absolute world scale for the sphere and scales its center", () => {
+  it("uses the largest absolute world scale for the sphere radius and applies signed center scale", () => {
     const sphere = root.addComponent(SphereCollider);
     sphere.radius = 2;
     sphere.center.set(1, 2, 3);
@@ -482,10 +639,10 @@ describe("Collider", () => {
     root.transform.setScale(-2, 3, 4);
     root.transform.setRotation(0, 90, 0);
     const closest = new Vector3();
-    expect(sphere.getClosestPoint(new Vector3(40, 26, 28), closest)).toBeCloseTo(10);
-    expectPoint(closest, 30, 26, 28);
-    expect(sphere.getClosestPoint(new Vector3(22, 26, 28), closest)).toBe(0);
-    expectPoint(closest, 22, 26, 28);
+    expect(sphere.getClosestPoint(new Vector3(40, 26, 32), closest)).toBeCloseTo(10);
+    expectPoint(closest, 30, 26, 32);
+    expect(sphere.getClosestPoint(new Vector3(22, 26, 32), closest)).toBe(0);
+    expectPoint(closest, 22, 26, 32);
   });
 
   it.each([ColliderShapeUpAxis.X, ColliderShapeUpAxis.Y, ColliderShapeUpAxis.Z])(
@@ -500,13 +657,11 @@ describe("Collider", () => {
       const radius = 0.5 * Math.max(scales[(direction + 1) % 3], scales[(direction + 2) % 3]);
       const axis = [new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1)][direction];
       const closest = new Vector3();
-      expect(capsule.getClosestPoint(axis.clone().scale(10), closest)).toBeCloseTo(10 - scales[direction] - radius);
-      expectPoint(
-        closest,
-        axis.x * (scales[direction] + radius),
-        axis.y * (scales[direction] + radius),
-        axis.z * (scales[direction] + radius)
-      );
+      const halfHeight = 1.5 * scales[direction];
+      expect(capsule.getClosestPoint(axis.clone().scale(10), closest)).toBeCloseTo(10 - halfHeight);
+      expectPoint(closest, axis.x * halfHeight, axis.y * halfHeight, axis.z * halfHeight);
+      const radial = [new Vector3(0, 1, 0), new Vector3(0, 0, 1), new Vector3(1, 0, 0)][direction];
+      expect(capsule.getClosestPoint(radial.clone().scale(10), closest)).toBeCloseTo(10 - radius);
       expect(capsule.getClosestPoint(new Vector3(), closest)).toBe(0);
       expectPoint(closest, 0, 0, 0);
     }
@@ -916,7 +1071,7 @@ describe("Collider", () => {
       expect(hit.distance).toBeCloseTo(3, 4);
     });
 
-    it("clamps capsule dimensions, requires positive radius and height, and detaches when degenerate", () => {
+    it("uses a sphere when capsule height is at most the diameter and detaches at zero scale", () => {
       const entity = root.createChild("degenerate-capsule");
       entity.transform.setPosition(0, 5, 0);
       const capsule = entity.addComponent(CapsuleCollider);
@@ -935,10 +1090,17 @@ describe("Collider", () => {
       expect(physics.raycast(ray, hit)).toBe(false);
 
       capsule.radius = 1;
+      const verticalRay = new Ray(new Vector3(0, 10, 0), new Vector3(0, -1, 0));
+      capsule.height = 1;
+      expect(physics.raycast(verticalRay, hit)).toBe(true);
+      expect(hit.distance).toBeCloseTo(4);
+      expect(hit.collider).toBe(capsule);
+      capsule.height = 4;
+      expect(physics.raycast(verticalRay, hit)).toBe(true);
+      expect(hit.distance).toBeCloseTo(3);
       capsule.height = 2;
-      expect(physics.raycast(ray, hit)).toBe(false);
-      expect(capsule.getClosestPoint(new Vector3(-5, 5, 0), new Vector3())).toBe(-1);
-
+      expect(physics.raycast(verticalRay, hit)).toBe(true);
+      expect(hit.distance).toBeCloseTo(4);
       capsule.height = 4;
       expect(physics.raycast(ray, hit)).toBe(true);
       expect(hit.normal.x).toBeCloseTo(-1, 4);
@@ -998,7 +1160,7 @@ describe("Collider", () => {
       const capsuleEntity = root.createChild("f32-capsule");
       capsuleEntity.transform.setPosition(0, 5, 0);
       const capsule = capsuleEntity.addComponent(CapsuleCollider);
-      capsule.height = 1e-40;
+      capsule.height = 1e-46;
       expect(physics.raycast(ray, hit)).toBe(false);
       capsule.height = 1e40;
       expect(physics.raycast(ray, hit)).toBe(false);
@@ -1368,9 +1530,9 @@ describe("Collider", () => {
       child.transform.setPosition(0, 0, 0.5);
       child.addComponent(BoxCollider).center.z = 1;
 
-      // The child origin is at (1.5, 0, 0) before body scale and the rotated shape center adds 2 on X.
+      // The child origin and its offset both reflect across the body’s scaled X axis.
       const center = body.centerOfMass;
-      expect(center.x).toBeCloseTo(-1, 6);
+      expect(center.x).toBeCloseTo(-5, 6);
       expect(center.y).toBeCloseTo(0, 6);
       expect(center.z).toBeCloseTo(0, 6);
     });

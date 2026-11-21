@@ -11,8 +11,7 @@ enum ShapeFlag {
   SIMULATION_SHAPE = 1 << 0,
   /** The shape will partake in scene queries (ray casts, overlap tests, sweeps, ...). */
   SCENE_QUERY_SHAPE = 1 << 1,
-  /** The shape is a trigger which can send reports whenever other shapes enter/leave its volume. */
-  TRIGGER_SHAPE = 1 << 2
+  VISUALIZATION = 1 << 3
 }
 
 /**
@@ -47,11 +46,10 @@ export abstract class PhysXColliderShape implements IColliderShape {
   }
 
   /**
-   * {@inheritDoc IColliderShape.setContactOffset }
-   * @default 0.02f * PxTolerancesScale::length
+   * {@inheritDoc IColliderShape.setContactOffsets }
    */
-  setContactOffset(offset: number): void {
-    this._pxShape.setContactOffsets(offset, 0);
+  setContactOffsets(contactOffset: number, restOffset: number): void {
+    this._pxShape.setContactOffsets(contactOffset, restOffset);
   }
 
   /**
@@ -68,6 +66,11 @@ export abstract class PhysXColliderShape implements IColliderShape {
     this._pxShape.setGroup(layer);
   }
 
+  /** {@inheritDoc IColliderShape.setLayerOverrides } */
+  setLayerOverrides(include: number, exclude: number): void {
+    this._pxShape.setLayerOverrides(include, exclude);
+  }
+
   /**
    * {@inheritDoc IColliderShape.setIsTrigger }
    */
@@ -80,6 +83,26 @@ export abstract class PhysXColliderShape implements IColliderShape {
    */
   setIsSceneQuery(value: boolean): void {
     this._pxShape.setSceneQueryEnabled(value);
+  }
+
+  /** {@inheritDoc IColliderShape.setContactEventsEnabled } */
+  setContactEventsEnabled(value: boolean): void {
+    this._pxShape.setContactEventsEnabled(value);
+  }
+
+  /** {@inheritDoc IColliderShape.setContactModificationEnabled } */
+  setContactModificationEnabled(value: boolean): void {
+    this._pxShape.setContactModificationEnabled(value);
+  }
+
+  /** {@inheritDoc IColliderShape.getWorldBounds } */
+  getWorldBounds(outMin: Vector3, outMax: Vector3): void {
+    this._pxShape.getWorldBounds(outMin, outMax);
+  }
+
+  /** {@inheritDoc IColliderShape.computePenetration } */
+  computePenetration(other: PhysXColliderShape, outDirection: Vector3): number {
+    return this._pxShape.computePenetration(other._pxShape, outDirection);
   }
 
   /**
@@ -122,7 +145,9 @@ export abstract class PhysXColliderShape implements IColliderShape {
 
   protected _createShape(geometry: any, material: PhysXPhysicsMaterial): any {
     const { _physX: physX, _pxPhysics: physics } = this._physXPhysics;
-    const shapeFlags = new physX.PxShapeFlags(ShapeFlag.SCENE_QUERY_SHAPE | ShapeFlag.SIMULATION_SHAPE);
+    const shapeFlags = new physX.PxShapeFlags(
+      ShapeFlag.SCENE_QUERY_SHAPE | ShapeFlag.SIMULATION_SHAPE | ShapeFlag.VISUALIZATION
+    );
     const shape = physics.createShape(geometry, material._pxMaterial, true, shapeFlags);
     shapeFlags.delete();
     return shape;

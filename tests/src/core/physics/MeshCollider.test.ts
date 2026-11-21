@@ -82,6 +82,23 @@ describe("MeshCollider", () => {
     for (let i = 0; i < count; i++) physics._update(physics.fixedTimeStep);
   }
 
+  it("excludes a mesh whose authored offsets become invalid while reading geometry", () => {
+    const mesh = createCubeMesh(engine);
+    const readPositions = mesh.getPositions.bind(mesh);
+    const collider = addMesh(true, mesh);
+    const ray = rayAt(0);
+    vi.spyOn(mesh, "getPositions").mockImplementationOnce(() => {
+      collider.restOffset = collider.contactOffset;
+      return readPositions();
+    });
+
+    expect(physics.raycast(ray)).toBe(false);
+    expect(physics.raycast(ray)).toBe(false);
+
+    collider.restOffset = 0;
+    expect(physics.raycast(ray)).toBe(true);
+  });
+
   function rayAt(x: number, y = 5): Ray {
     return new Ray(new Vector3(x, y, 0), new Vector3(0, -1, 0));
   }
@@ -92,6 +109,31 @@ describe("MeshCollider", () => {
     collider.mesh = mesh;
     return collider;
   }
+
+  it.each([false, true])("mirrors offset mesh geometry without changing its entity (convex=%s)", (convex) => {
+    const collider = addMesh(convex, createCubeMesh(engine, 1, 3));
+    const hit = new HitResult();
+    expect(physics.raycast(rayAt(3), hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+
+    collider.entity.transform.setScale(-1, 1, 1);
+    expect(physics.raycast(rayAt(3), hit)).toBe(false);
+    expect(physics.raycast(rayAt(-3), hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+  });
+
+  it("queries either side of a triangle when doubleSided is toggled", () => {
+    const collider = addMesh(false, createModelMesh(engine, [-2, 0, -2, 0, 0, 2, 2, 0, -2], [0, 1, 2]));
+    const backRay = new Ray(new Vector3(0, -2, 0), new Vector3(0, 1, 0));
+    const hit = new HitResult();
+
+    expect(physics.raycast(rayAt(0), hit)).toBe(true);
+    expect(physics.raycast(backRay, hit)).toBe(false);
+
+    collider.doubleSided = true;
+    expect(physics.raycast(backRay, hit)).toBe(true);
+    expect(hit.collider).toBe(collider);
+  });
 
   function addTriggerProbe(radius = 1.5): CollisionRecorder {
     const entity = root.createChild("probe");
@@ -112,6 +154,42 @@ describe("MeshCollider", () => {
     const hit = new HitResult();
     expect(physics.raycast(new Ray(new Vector3(5, 5, 0), new Vector3(0, -1, 0)), hit)).toBe(true);
     expect(hit.collider).toBe(clone);
+  });
+
+  it("shares cooked triangles across shapes and recooks when the source indices are submitted or refreshed", () => {
+    const mesh = createModelMesh(engine, [-1, 0, -1, 0, 0, 1, 1, 0, -1, 3, 0, -1, 4, 0, 1, 5, 0, -1], [0, 1, 2]);
+    const first = addMesh(false, mesh);
+    const hit = new HitResult();
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
+
+    const nativeCooking = (first as any)._native._physXPhysics._pxCooking;
+    const cook = vi.spyOn(nativeCooking, "createTriMesh");
+    const second = addMesh(false, mesh);
+    second.entity.transform.setPosition(10, 0, 0);
+    second.entity.transform.setScale(1.5, 1, 1);
+    expect(physics.raycast(rayAt(10), hit) && hit.collider === second).toBe(true);
+    expect(cook).not.toHaveBeenCalled();
+
+    const indices = mesh.getIndices()!;
+    indices.set([3, 4, 5]);
+    mesh.setIndices(indices);
+    const third = addMesh(false, mesh);
+    third.entity.transform.setPosition(20, 0, 0);
+    expect(physics.raycast(rayAt(24), hit) && hit.collider === third).toBe(true);
+    expect(physics.raycast(rayAt(20))).toBe(false);
+    expect(cook).toHaveBeenCalledTimes(1);
+    expect(physics.raycast(rayAt(10), hit) && hit.collider === second).toBe(true);
+
+    indices.set([0, 1, 2]);
+    first.mesh = null;
+    expect(physics.raycast(rayAt(0))).toBe(false);
+    first.mesh = mesh;
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
+    expect(cook).toHaveBeenCalledTimes(2);
+
+    second.destroy();
+    third.destroy();
+    expect(physics.raycast(rayAt(0), hit) && hit.collider === first).toBe(true);
   });
 
   it("creates a triangle mesh lazily for raycasts", () => {

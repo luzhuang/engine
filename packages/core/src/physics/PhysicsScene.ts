@@ -8,6 +8,7 @@ import { Script } from "../Script";
 import { DisorderedArray } from "../utils/DisorderedArray";
 import { Collider } from "./Collider";
 import { Collision } from "./Collision";
+import { ContactModification } from "./ContactModification";
 import { HitResult } from "./HitResult";
 import { Rigidbody } from "./Rigidbody";
 
@@ -52,6 +53,33 @@ export class PhysicsScene {
   _nativePhysicsScene: IPhysicsScene;
 
   private _contactEventConsumerCount = 0;
+  private _contactModification?: ContactModification;
+
+  /**
+   * The synchronous callback that can modify solid contacts before they are solved. Null disables the callback.
+   * @remarks At least one Collider in a pair must enable {@link Collider.contactModificationEnabled}.
+   * Use the borrowed contact batch only during the callback. Defer physics queries, scene and body changes,
+   * and changes to this callback until after the step. A synchronous error is rethrown after the step completes.
+   */
+  get contactModifier(): ((contacts: ContactModification) => void) | null {
+    return this._contactModification?._modifier ?? null;
+  }
+
+  set contactModifier(value: ((contacts: ContactModification) => void) | null) {
+    const previous = this.contactModifier;
+    if (previous === value) return;
+    Engine._assertOutsideContactModifier();
+
+    const nativeScene = this._nativePhysicsScene;
+    if (!nativeScene) throw new Error("Contact modification requires a live physics scene.");
+    if (value !== null && typeof value !== "function")
+      throw new TypeError("Contact modifier must be a function or null.");
+
+    const contacts = (this._contactModification ||= new ContactModification());
+    if (!previous) nativeScene.setContactModifier((batch) => contacts._dispatch(batch));
+    else if (!value) nativeScene.setContactModifier(null);
+    contacts._modifier = value;
+  }
 
   /**
    * The gravity of physics scene.
@@ -695,38 +723,45 @@ export class PhysicsScene {
     const step = Math.floor(simulateTime / fixedTimeStep);
     this._restTime = simulateTime - step * fixedTimeStep;
     for (let i = 0; i < step; i++) {
-      const scene = this._scene;
-      componentsManager.callScriptOnPhysicsUpdate();
-      if (scene.destroyed || !scene.isActive) return;
-      this._syncColliders();
-      if (scene.destroyed) return;
-      const pendingSleeps = this._pendingSleeps;
-      if (pendingSleeps?.size && scene._activeProcessCount === 0) {
-        for (const body of pendingSleeps) body._applyScheduledSleep();
-        pendingSleeps.clear();
-      }
-      nativePhysicsScene.update(fixedTimeStep);
-      if (this._bodyOrderDirty && !bodies.isLopping) {
-        this._sortBodies();
-      }
-      const count = bodies.length;
-      if (count > 0) {
-        // Keep the pose leased through Transform accessors, which can update another scene.
-        const poses = PhysicsScene._bodyPoses;
-        const pose: [Vector3, Quaternion] = poses.pop() ?? [new Vector3(), new Quaternion()];
-        const elements = bodies._elements;
-        bodies._startLoop();
-        try {
-          const [position, rotation] = pose;
-          for (let j = 0; j < count; j++) {
-            elements[j]?._writeBack(position, rotation);
-          }
-        } finally {
-          bodies._endLoop(PhysicsScene._bodyIndexSetter);
-          poses.push(pose);
+      let contactError: [unknown] | undefined;
+      try {
+        const scene = this._scene;
+        componentsManager.callScriptOnPhysicsUpdate();
+        if (scene.destroyed || !scene.isActive) return;
+        this._syncColliders();
+        if (scene.destroyed) return;
+        const pendingSleeps = this._pendingSleeps;
+        if (pendingSleeps?.size && scene._activeProcessCount === 0) {
+          for (const body of pendingSleeps) body._applyScheduledSleep();
+          pendingSleeps.clear();
         }
+        nativePhysicsScene.update(fixedTimeStep);
+        contactError = this._contactModification?._takeError();
+        if (this._bodyOrderDirty && !bodies.isLopping) {
+          this._sortBodies();
+        }
+        const count = bodies.length;
+        if (count > 0) {
+          // Keep the pose leased through Transform accessors, which can update another scene.
+          const poses = PhysicsScene._bodyPoses;
+          const pose: [Vector3, Quaternion] = poses.pop() ?? [new Vector3(), new Quaternion()];
+          const elements = bodies._elements;
+          bodies._startLoop();
+          try {
+            const [position, rotation] = pose;
+            for (let j = 0; j < count; j++) {
+              elements[j]?._writeBack(position, rotation);
+            }
+          } finally {
+            bodies._endLoop(PhysicsScene._bodyIndexSetter);
+            poses.push(pose);
+          }
+        }
+        if (!scene.destroyed) this._dispatchEvents(nativePhysicsScene.updateEvents());
+      } catch (error) {
+        if (!contactError) throw error;
       }
-      if (!scene.destroyed) this._dispatchEvents(nativePhysicsScene.updateEvents());
+      if (contactError) throw contactError[0];
     }
   }
 
@@ -737,6 +772,7 @@ export class PhysicsScene {
    * @returns Whether the specified body's normal mass update was deferred.
    */
   _syncColliders(deferMassFor?: Rigidbody): boolean {
+    Engine._assertOutsideContactModifier();
     const dirtyBodies = this._dirtyBodies;
     while (dirtyBodies.length) {
       const body = dirtyBodies.pop()!;
@@ -896,6 +932,7 @@ export class PhysicsScene {
     this._pendingSleeps?.clear();
     this._nativePhysicsScene?.destroy();
     this._nativePhysicsScene = null!;
+    this._contactModification = undefined;
   }
 
   private _sortBodies(): void {
@@ -989,8 +1026,23 @@ export class PhysicsScene {
     other: Collider,
     collision?: Collision
   ): void {
-    if (self.destroyed || other.destroyed) return;
-    const scripts = self.entity._scripts;
+    if (self.destroyed || other.destroyed || (collision && !self.contactEventsEnabled)) return;
+    const entity = self.entity;
+    const body = self._attachedBody;
+    PhysicsScene._dispatchEntityScripts(state, entity, self, other, collision);
+    if (body && body.entity !== entity && body._index !== -1 && !self.destroyed && !other.destroyed) {
+      PhysicsScene._dispatchEntityScripts(state, body.entity, self, other, collision);
+    }
+  }
+
+  private static _dispatchEntityScripts(
+    state: PhysicsEventState,
+    target: Entity,
+    self: Collider,
+    other: Collider,
+    collision?: Collision
+  ): void {
+    const scripts = target._scripts;
     const count = scripts.length;
     if (count === 0) return;
     scripts._startLoop();

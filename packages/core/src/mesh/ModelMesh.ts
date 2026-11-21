@@ -28,6 +28,7 @@ export class ModelMesh extends Mesh {
   private _vertexCount: number = 0;
   private _vertexCountDirty: boolean = false;
   private _dataVersionCounter: number = 0;
+  private _positionLayoutVersion = -1;
 
   private _positions: Vector3[] | null = null;
   private _normals: Vector3[] | null = null;
@@ -58,6 +59,7 @@ export class ModelMesh extends Mesh {
   private _indices: Uint8Array | Uint16Array | Uint32Array | null = null;
   private _indicesFormat: IndexFormat | null = null;
   private _indicesChangeFlag: boolean = false;
+  private _indicesDataVersion = -1;
 
   /**
    * Vertex count of mesh.
@@ -430,16 +432,27 @@ export class ModelMesh extends Mesh {
     }
 
     this._indicesChangeFlag = true;
+    this._indicesDataVersion = this._dataVersionCounter++;
   }
 
   /**
    * Get indices for the mesh.
+   * @remarks Submit changes to this array through `setIndices()`.
    */
   getIndices(): Uint8Array | Uint16Array | Uint32Array | null {
     if (!this._accessible) {
       throw "Not allowed to access data while accessible is false.";
     }
     return this._indices;
+  }
+
+  /**
+   * @internal
+   * Committed revision of the collision data after reading positions and, for triangles, indices.
+   */
+  _getMeshColliderDataVersion(convex: boolean): number {
+    const positions = this._advancedVertexDataVersions[VertexElementIndex.Position] ?? -1;
+    return convex ? positions : Math.max(positions, this._indicesDataVersion);
   }
 
   /**
@@ -450,6 +463,13 @@ export class ModelMesh extends Mesh {
    * Call this method will clear the vertex data set by the setPositions(), setNormals(), setColors(), setBoneWeights(), setBoneIndices(), setTangents(), setUVs() methods.
    */
   setVertexElements(elements: VertexElement[]): void {
+    const previousPosition = this._primitive._vertexElementMap[VertexAttribute.Position];
+    const previousPositionVersion = previousPosition
+      ? this._getVertexBufferDataVersion(
+          VertexElementIndex.Position,
+          this._vertexBufferInfos[previousPosition.bindingIndex]?.dataVersion ?? -1
+        )
+      : -1;
     this._clearVertexElements();
 
     const count = elements.length;
@@ -459,7 +479,19 @@ export class ModelMesh extends Mesh {
 
     // Clear data if vertex element not contains
     const vertexElementMap = this._primitive._vertexElementMap;
-    vertexElementMap[VertexAttribute.Position] || this.setPositions(null);
+    const position = vertexElementMap[VertexAttribute.Position];
+    if (!position) {
+      this.setPositions(null);
+    } else if (
+      previousPosition &&
+      (previousPosition.bindingIndex !== position.bindingIndex ||
+        previousPosition.offset !== position.offset ||
+        previousPosition.format !== position.format) &&
+      (this._advancedVertexDataVersions[VertexElementIndex.Position] ?? -1) <= previousPositionVersion
+    ) {
+      // Position readback depends on the layout as well as the committed buffer data.
+      this._positionLayoutVersion = this._dataVersionCounter++;
+    }
     vertexElementMap[VertexAttribute.Normal] || this.setNormals(null);
     vertexElementMap[VertexAttribute.Color] || this.setColors(null);
     vertexElementMap[VertexAttribute.BoneWeight] || this.setBoneWeights(null);
@@ -756,7 +788,12 @@ export class ModelMesh extends Mesh {
     const advancedVertexDataVersions = this._advancedVertexDataVersions;
     const advancedDataVersion = advancedVertexDataVersions[vertexElementIndex] ?? -1;
     const vertexElement = this._primitive._vertexElementMap[vertexAttribute];
-    const bufferDataVersion = vertexElement ? this._vertexBufferInfos[vertexElement.bindingIndex].dataVersion : -1;
+    const bufferDataVersion = vertexElement
+      ? this._getVertexBufferDataVersion(
+          vertexElementIndex,
+          this._vertexBufferInfos[vertexElement.bindingIndex].dataVersion
+        )
+      : -1;
     if (advancedDataVersion >= bufferDataVersion) {
       return vertices;
     } else {
@@ -779,6 +816,10 @@ export class ModelMesh extends Mesh {
     }
 
     this._updateAdvancedVertexDataMarks(elementChangeFlag, elementIndex);
+  }
+
+  private _getVertexBufferDataVersion(elementIndex: VertexElementIndex, version: number): number {
+    return elementIndex === VertexElementIndex.Position ? Math.max(version, this._positionLayoutVersion) : version;
   }
 
   private _updateAdvancedVertexDataMarks<T extends VertexType>(
@@ -1076,7 +1117,7 @@ export class ModelMesh extends Mesh {
 
     const advancedDataVersion = this._advancedVertexDataVersions[elementIndex] ?? -1;
     const vertexBufferInfo = this._vertexBufferInfos[bindingIndex];
-    if (advancedDataVersion > vertexBufferInfo.dataVersion) {
+    if (advancedDataVersion > this._getVertexBufferDataVersion(elementIndex, vertexBufferInfo.dataVersion)) {
       const formatMetaInfo = vertexElement._formatMetaInfo;
       const typedArray = this._getVertexTypedArray(buffer.data!.buffer, formatMetaInfo.type)!;
       const byteOffset = vertexElement.offset;

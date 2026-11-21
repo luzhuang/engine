@@ -118,7 +118,7 @@ describe("PhysicsMaterial", () => {
       ["createSphereColliderShape", 2],
       ["createCapsuleColliderShape", 3],
       ["createPlaneColliderShape", 1],
-      ["createMeshColliderShape", 4]
+      ["createMeshColliderShape", 3]
     ] as const;
     const createColliders = factories.map(([method, materialIndex]) => ({
       spy: vi.spyOn(physics, method),
@@ -228,15 +228,15 @@ describe("PhysicsMaterial", () => {
     expect(createMaterial).not.toHaveBeenCalled();
     expect(collider.material).toBeNull();
     expect(createMesh).toHaveBeenCalledTimes(1);
-    const defaultNative = createMesh.mock.calls[0][4];
+    const defaultNative = createMesh.mock.calls[0][3];
     const material = collider.getInstanceMaterial();
     material.bounciness = 0.8;
     collider.convex = false;
     sync();
     expect(createMaterial).toHaveBeenCalledTimes(1);
     expect(createMesh).toHaveBeenCalledTimes(2);
-    expect(createMesh.mock.calls[1][4]).toBe(createMaterial.mock.results[0].value);
-    expect(createMesh.mock.calls[1][4]).not.toBe(defaultNative);
+    expect(createMesh.mock.calls[1][3]).toBe(createMaterial.mock.results[0].value);
+    expect(createMesh.mock.calls[1][3]).not.toBe(defaultNative);
     expect(collider.material).toBe(material);
     expect(material.refCount).toBe(1);
   });

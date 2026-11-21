@@ -49,6 +49,7 @@ export class EngineObject {
    */
   destroy(): void {
     if (this._destroyed) return;
+    Engine._assertOutsideContactModifier();
 
     const engine = this._engine;
     if (engine?._frameInProcess && !engine._processingPendingDestroys) {

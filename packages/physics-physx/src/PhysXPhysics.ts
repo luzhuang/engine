@@ -1,4 +1,4 @@
-import { Quaternion, SystemInfo, Vector3 } from "@galacean/engine";
+import { Engine, Quaternion, SystemInfo, Vector3 } from "@galacean/engine";
 import {
   IBoxColliderShape,
   ICapsuleColliderShape,
@@ -7,6 +7,7 @@ import {
   IFixedJoint,
   IHingeJoint,
   IMeshColliderShape,
+  IMeshColliderSource,
   IPhysics,
   IPhysicsMaterialProperties,
   IPhysicsScene,
@@ -27,7 +28,7 @@ import { PhysXHingeJoint } from "./joint/PhysXHingeJoint";
 import { PhysXSpringJoint } from "./joint/PhysXSpringJoint";
 import { PhysXBoxColliderShape } from "./shape/PhysXBoxColliderShape";
 import { PhysXCapsuleColliderShape } from "./shape/PhysXCapsuleColliderShape";
-import { PhysXMeshColliderShape } from "./shape/PhysXMeshColliderShape";
+import { PhysXMeshColliderShape, type PhysXMeshCookCache } from "./shape/PhysXMeshColliderShape";
 import { PhysXPlaneColliderShape } from "./shape/PhysXPlaneColliderShape";
 import { PhysXSphereColliderShape } from "./shape/PhysXSphereColliderShape";
 
@@ -46,6 +47,8 @@ export class PhysXPhysics implements IPhysics {
   _pxCooking: any;
   /** @internal PhysX cooking params */
   _pxCookingParams: any;
+  /** @internal */
+  readonly _meshCookCache: PhysXMeshCookCache = new WeakMap();
 
   private _initializePromise: Promise<void> | null = null;
   private _defaultErrorCallback: any;
@@ -76,6 +79,7 @@ export class PhysXPhysics implements IPhysics {
    * Destroy PhysXPhysics.
    */
   destroy(): void {
+    Engine._assertOutsideContactModifier();
     this._pxCooking.release();
     this._pxCookingParams.delete();
     this._physX.PxCloseExtensions();
@@ -160,23 +164,13 @@ export class PhysXPhysics implements IPhysics {
    */
   createMeshColliderShape(
     uniqueID: number,
-    positions: Vector3[],
-    indices: Uint8Array | Uint16Array | Uint32Array | null,
+    source: IMeshColliderSource,
     isConvex: boolean,
     material: PhysXPhysicsMaterial,
     cookingFlags: number,
     scale: Vector3
   ): IMeshColliderShape | null {
-    const shape = new PhysXMeshColliderShape(
-      this,
-      uniqueID,
-      positions,
-      indices,
-      isConvex,
-      material,
-      cookingFlags,
-      scale
-    );
+    const shape = new PhysXMeshColliderShape(this, uniqueID, source, isConvex, material, cookingFlags, scale);
     return shape._pxShape ? shape : null;
   }
 

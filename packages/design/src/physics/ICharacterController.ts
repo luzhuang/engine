@@ -39,11 +39,20 @@ export interface ICharacterController {
    */
   setCollisionLayer(layer: number): void;
 
+  /** Sets explicit collision layer inclusions and exclusions. Exclusions have precedence. */
+  setLayerOverrides(include: number, exclude: number): void;
+
   /**
    * Control whether scene queries can hit the controller.
    * @param value - Whether the controller participates in scene queries
    */
   setIsSceneQuery(value: boolean): void;
+
+  /** Sets whether this controller's shape requests contact events. The other shape can still request reporting. */
+  setContactEventsEnabled(value: boolean): void;
+
+  /** Allows a scene contact modifier to edit solid contacts involving this collider. */
+  setContactModificationEnabled(value: boolean): void;
 
   /**
    * Moves the character using a "collide-and-slide" algorithm.

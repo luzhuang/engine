@@ -1,8 +1,10 @@
 import { Vector3, DisorderedArray, Quaternion } from "@galacean/engine";
 import {
+  IContactModification,
   IPhysicsScene,
   IPhysicsEvents,
   IContactEvent,
+  IContactPoint,
   ITriggerEvent,
   PhysicsEventState
 } from "@galacean/engine-design";
@@ -33,6 +35,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
   private _pxScene: any;
   private _pxSceneQueries: any;
   private _physXSimulationCallbackInstance: any;
+  private _pxContactModificationCallback?: any;
   private _raycastBuffers?: Float64Array[];
   private _raycastDepth = 0;
 
@@ -182,6 +185,22 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     if (!enabled) {
       this._physicsEvents.contactEventCount = 0;
     }
+  }
+
+  /** {@inheritDoc IPhysicsScene.setContactModifier } */
+  setContactModifier(modifier: ((batch: IContactModification) => void) | null): void {
+    let callback: any = null;
+    if (modifier) {
+      callback = new this._physXPhysics._physX.PxContactModificationCallback(() => modifier(callback));
+    }
+    try {
+      this._pxScene.setContactModificationCallback(callback);
+    } catch (error) {
+      callback?.delete();
+      throw error;
+    }
+    this._pxContactModificationCallback?.delete();
+    this._pxContactModificationCallback = callback;
   }
 
   /**
@@ -422,6 +441,9 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     this._sphereGeometry?.delete();
     this._capsuleGeometry?.delete();
 
+    if (this._pxContactModificationCallback) {
+      this.setContactModifier(null);
+    }
     this._physXSimulationCallbackInstance.delete();
     this._pxSceneQueries.delete();
     // The controller manager releases its controllers through the scene.
@@ -583,7 +605,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     shape0ID: number,
     shape1ID: number,
     count: number,
-    contacts: Float32Array,
+    data: Float32Array,
     state: PhysicsEventState
   ): void {
     const events = this._physicsEvents;
@@ -593,17 +615,7 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     event.shape1Id = shape1ID;
     event.state = state;
 
-    // Copy the native contact data before PhysX reuses the buffer for another pair.
-    const bufferedContacts = event._bufferedContacts;
-    bufferedContacts.contactCount = count;
-    for (let i = 0; i < count; i++) {
-      const offset = i * 10;
-      const contact = (bufferedContacts.contacts[i] ||= new BufferedContactPoint());
-      contact.position.set(contacts[offset], contacts[offset + 1], contacts[offset + 2]);
-      contact.normal.set(contacts[offset + 3], contacts[offset + 4], contacts[offset + 5]);
-      contact.impulse.set(contacts[offset + 6], contacts[offset + 7], contacts[offset + 8]);
-      contact.separation = contacts[offset + 9];
-    }
+    event.copyData(count, data);
   }
 }
 
@@ -620,45 +632,52 @@ class TriggerEvent implements ITriggerEvent {
   ) {}
 }
 
-/**
- * Buffered contact point data, copied from PhysX during fetchResults.
- */
-class BufferedContactPoint {
-  position = new Vector3();
-  normal = new Vector3();
-  impulse = new Vector3();
-  separation = 0;
-}
-
-/**
- * Contact points retained for a buffered collision event.
- */
-class BufferedContacts {
-  contactCount = 0;
-  contacts: BufferedContactPoint[] = [];
-
-  size(): number {
-    return this.contactCount;
-  }
-
-  get(index: number): BufferedContactPoint {
-    return this.contacts[index];
-  }
-}
-
 class ContactEvent implements IContactEvent {
   state: PhysicsEventState;
   shape0Id: number;
   shape1Id: number;
+  contactCount: number;
 
-  /** @internal */
-  _bufferedContacts = new BufferedContacts();
+  private _data: Float32Array;
+  private _hasRelativeVelocity = false;
 
-  get contactCount(): number {
-    return this._bufferedContacts.contactCount;
+  copyData(count: number, data: Float32Array): void {
+    // The native buffer is reused between pairs, so only the copy survives fetchResults.
+    if (data.length) {
+      if (this._data?.length >= data.length) this._data.set(data);
+      else this._data = new Float32Array(data);
+    }
+    this.contactCount = count;
+    this._hasRelativeVelocity = this.state !== PhysicsEventState.Exit && data.length > count * 10;
   }
 
-  getContacts(): BufferedContacts {
-    return this._bufferedContacts;
+  getContact(index: number, out: IContactPoint, sign: 1 | -1): void {
+    const data = this._data;
+    const i = index * 10;
+    out.position.set(data[i], data[i + 1], data[i + 2]);
+    out.normal.set(sign * data[i + 3], sign * data[i + 4], sign * data[i + 5]);
+    out.impulse.set(sign * data[i + 6], sign * data[i + 7], sign * data[i + 8]);
+    out.separation = data[i + 9];
+  }
+
+  getImpulse(out: Vector3): void {
+    const data = this._data;
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (let i = 6, end = this.contactCount * 10; i < end; i += 10) {
+      x += data[i];
+      y += data[i + 1];
+      z += data[i + 2];
+    }
+    out.set(x, y, z);
+  }
+
+  getRelativeVelocity(out: Vector3): boolean {
+    if (!this._hasRelativeVelocity) return false;
+    const i = this.contactCount * 10;
+    const data = this._data;
+    out.set(data[i], data[i + 1], data[i + 2]);
+    return true;
   }
 }
