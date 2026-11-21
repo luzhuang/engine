@@ -30,6 +30,7 @@ export class PhysXCharacterController implements ICharacterController {
   private _includeLayers = 0;
   private _excludeLayers = 0;
   private _isSceneQuery = true;
+  private _contactEventsEnabled = true;
   private _detectCollisions = true;
   private _stepOffset = 0.5;
   private _climbingMode = ControllerClimbingMode.Constrained;
@@ -125,6 +126,12 @@ export class PhysXCharacterController implements ICharacterController {
   setIsSceneQuery(value: boolean): void {
     this._isSceneQuery = value;
     this._pxController?.setSceneQueryEnabled(value);
+  }
+
+  /** {@inheritDoc ICharacterController.setContactEventsEnabled } */
+  setContactEventsEnabled(value: boolean): void {
+    this._contactEventsEnabled = value;
+    this._pxController?.setContactEventsEnabled(value);
   }
 
   /** {@inheritDoc ICharacterController.setDetectCollisions} */
@@ -364,6 +371,7 @@ export class PhysXCharacterController implements ICharacterController {
     this._pxController = pxController;
     pxController.setUUID(this._id);
     pxController.setSceneQueryEnabled(this._isSceneQuery);
+    if (!this._contactEventsEnabled) pxController.setContactEventsEnabled(false);
     if (!this._detectCollisions) pxController.setDetectCollisions(false);
     if (this._includeLayers || this._excludeLayers) {
       pxController.setLayerOverrides(this._includeLayers, this._excludeLayers);

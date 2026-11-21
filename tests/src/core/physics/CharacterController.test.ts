@@ -233,8 +233,9 @@ describe("CharacterController", () => {
     expect(approachStep()).toBeGreaterThan(0);
   });
 
-  it("reports solid sweep contacts with the published position and world-space hit data", () => {
+  it.each([true, false])("reports solid sweep contacts with contactEventsEnabled=%s", (contactEventsEnabled) => {
     const wall = addBox(new Vector3(1, 5, 5), new Vector3(2, 5, 0));
+    controller.contactEventsEnabled = wall.contactEventsEnabled = contactEventsEnabled;
     addBox(new Vector3(0.2, 5, 5), new Vector3(0.75, 5, 0)).isTrigger = true;
     role.transform.setPosition(0, 5, 0);
     controller.stepOffset = 0;

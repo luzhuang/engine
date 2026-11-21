@@ -63,6 +63,9 @@ export interface ICharacterController {
    */
   setIsSceneQuery(value: boolean): void;
 
+  /** Sets whether this controller's shape requests contact events. The other shape can still request reporting. */
+  setContactEventsEnabled(value: boolean): void;
+
   /** Sets whether other bodies can collide with the controller and triggers can detect it. */
   setDetectCollisions(value: boolean): void;
 

@@ -47,6 +47,9 @@ export interface IColliderShape {
    */
   setIsSceneQuery(value: boolean): void;
 
+  /** Sets whether this shape requests contact events. Either shape in a pair can request reporting. */
+  setContactEventsEnabled(value: boolean): void;
+
   /** Writes the exact axis-aligned bounds of the world-space shape. */
   getWorldBounds(outMin: Vector3, outMax: Vector3): void;
 

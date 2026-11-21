@@ -10,9 +10,7 @@ enum ShapeFlag {
   /** The shape will partake in collision in the physical simulation. */
   SIMULATION_SHAPE = 1 << 0,
   /** The shape will partake in scene queries (ray casts, overlap tests, sweeps, ...). */
-  SCENE_QUERY_SHAPE = 1 << 1,
-  /** The shape is a trigger which can send reports whenever other shapes enter/leave its volume. */
-  TRIGGER_SHAPE = 1 << 2
+  SCENE_QUERY_SHAPE = 1 << 1
 }
 
 /**
@@ -76,10 +74,7 @@ export abstract class PhysXColliderShape implements IColliderShape {
    * {@inheritDoc IColliderShape.setIsTrigger }
    */
   setIsTrigger(value: boolean): void {
-    const flags = ShapeFlag.SCENE_QUERY_SHAPE | (value ? ShapeFlag.TRIGGER_SHAPE : ShapeFlag.SIMULATION_SHAPE);
-    const shapeFlags = new this._physXPhysics._physX.PxShapeFlags(flags);
-    this._pxShape.setFlags(shapeFlags);
-    shapeFlags.delete();
+    this._pxShape.setIsTrigger(value);
   }
 
   /**
@@ -87,6 +82,11 @@ export abstract class PhysXColliderShape implements IColliderShape {
    */
   setIsSceneQuery(value: boolean): void {
     this._pxShape.setSceneQueryEnabled(value);
+  }
+
+  /** {@inheritDoc IColliderShape.setContactEventsEnabled } */
+  setContactEventsEnabled(value: boolean): void {
+    this._pxShape.setContactEventsEnabled(value);
   }
 
   /** {@inheritDoc IColliderShape.getWorldBounds } */

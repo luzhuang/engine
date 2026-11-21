@@ -1400,7 +1400,7 @@ export class PhysicsScene {
     other: Collider,
     collision?: Collision
   ): void {
-    if (self.destroyed || other.destroyed) return;
+    if (self.destroyed || other.destroyed || (collision && !self.contactEventsEnabled)) return;
     const entity = self.entity;
     const body = self._attachedBody;
     PhysicsScene._dispatchEntityScripts(state, entity, self, other, collision);

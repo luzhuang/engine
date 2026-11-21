@@ -480,6 +480,55 @@ describe("Physics Test", () => {
       }
     });
 
+    it.each(["shape", "controller"] as const)("skips native contact reports for a muted %s pair", (kind) => {
+      const scene = new Scene(enginePhysX, "muted contact pair", { solver: "tgs", bounceThreshold: 0 });
+      enginePhysX.sceneManager.addScene(scene);
+      const physics = scene.physics;
+      physics.autoSimulation = false;
+      physics.gravity.set(0, 0, 0);
+      const material = new PhysicsMaterial(enginePhysX);
+      material.bounciness = 1;
+      material.bounceCombine = PhysicsMaterialCombineMode.Maximum;
+
+      const target = scene.createRootEntity("target");
+      const wall = kind === "shape" ? target.addComponent(BoxCollider) : target.addComponent(CharacterController);
+      wall.material = material;
+      wall.contactEventsEnabled = false;
+      target.addComponent(CollisionConsumerScript);
+      const projectile = scene.createRootEntity("projectile");
+      projectile.transform.setPosition(-1.1, 0, 0);
+      const sphere = projectile.addComponent(SphereCollider);
+      sphere.material = material;
+      sphere.contactEventsEnabled = false;
+      const body = projectile.addComponent(Rigidbody);
+      const bufferContactEvent = vi.spyOn((physics as any)._nativePhysicsScene, "_bufferContactEvent");
+      try {
+        physics.step();
+        if (wall instanceof CharacterController) {
+          wall.geometry = CharacterControllerGeometry.Box;
+          physics.step();
+        } else {
+          wall.isTrigger = true;
+          wall.isTrigger = false;
+        }
+        body.linearVelocity.set(1, 0, 0);
+        for (let step = 0; step < 20; step++) physics.step();
+        expect(body.linearVelocity.x).toBeCloseTo(-1);
+        expect(bufferContactEvent).not.toHaveBeenCalled();
+
+        wall.contactEventsEnabled = true;
+        projectile.transform.setPosition(-1.1, 0, 0);
+        body.linearVelocity.set(1, 0, 0);
+        for (let step = 0; step < 20; step++) physics.step();
+        expect(body.linearVelocity.x).toBeCloseTo(-1);
+        expect(bufferContactEvent).toHaveBeenCalled();
+      } finally {
+        bufferContactEvent.mockRestore();
+        scene.destroy();
+        material.destroy();
+      }
+    });
+
     it("does not toggle native contact events during fixed substeps", () => {
       const scene = enginePhysX.sceneManager.activeScene;
       const physicsScene = scene.physics;

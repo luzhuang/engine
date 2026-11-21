@@ -118,6 +118,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
   private _rotation = new Vector3();
   protected _isTrigger = false;
   private _isSceneQuery = true;
+  private _contactEventsEnabled = true;
   private _contactOffset = 0.02;
   private _restOffset = 0;
   @ignoreClone
@@ -186,6 +187,25 @@ export class Collider extends Component implements ICloneHook<Collider> {
     if (this._isSceneQuery !== value) {
       this._isSceneQuery = value;
       this._native?.setIsSceneQuery(value);
+    }
+  }
+
+  /**
+   * Whether `onCollisionEnter`, `onCollisionStay`, and `onCollisionExit` are delivered for this Collider.
+   * @defaultValue true
+   * @remarks Each event checks this setting before dispatch to this entity and its attached Rigidbody's entity.
+   * The other Collider uses its own setting. The solver, triggers, and character controller moves are independent
+   * of contact callback delivery.
+   * Re-enabling resumes with the next contact event, which can be a stay or exit.
+   */
+  get contactEventsEnabled(): boolean {
+    return this._contactEventsEnabled;
+  }
+
+  set contactEventsEnabled(value: boolean) {
+    if (this._contactEventsEnabled !== value) {
+      this._contactEventsEnabled = value;
+      this._native?.setContactEventsEnabled(value);
     }
   }
 
@@ -648,6 +668,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
     this._syncOffsets(shape);
     if (this._isTrigger) shape.setIsTrigger(true);
     if (!this._isSceneQuery) shape.setIsSceneQuery(false);
+    if (!this._contactEventsEnabled) shape.setContactEventsEnabled(false);
     shape.setCollisionLayer(this._collisionLayerIndex);
     if (this._includeLayers || this._excludeLayers) {
       shape.setLayerOverrides(this._includeLayers, this._excludeLayers);

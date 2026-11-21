@@ -373,6 +373,60 @@ describe("Collider", () => {
     expect(physics.overlapSphereAll(new Vector3(), 0.1, Layer.Layer0)).toHaveLength(0);
   });
 
+  it("mutes only the selected collider's contact callbacks, including on its Rigidbody", () => {
+    const target = root.createChild("target");
+    const box = target.addComponent(BoxCollider);
+    box.size.set(2, 2, 2);
+    const other = target.addComponent(CollisionRecorder);
+    const owner = root.createChild("owner");
+    owner.transform.setPosition(-3, 0, 0);
+    const body = owner.addComponent(Rigidbody);
+    body.isKinematic = true;
+    const shape = owner.createChild("shape");
+    const sphere = shape.addComponent(SphereCollider);
+    const receivers = [shape.addComponent(CollisionRecorder), owner.addComponent(CollisionRecorder)];
+
+    expect(sphere.contactEventsEnabled).toBe(true);
+    sphere.contactEventsEnabled = false;
+    update();
+    const move = (x: number) => {
+      body.move(new Vector3(x, 0, 0));
+      update();
+    };
+    for (const x of [-1, -0.75, -0.5]) move(x);
+    expect(other.onCollisionEnter).toHaveBeenCalledOnce();
+    expect(other.onCollisionStay).toHaveBeenCalled();
+    for (const receiver of receivers) {
+      expect(receiver.onCollisionEnter).not.toHaveBeenCalled();
+      expect(receiver.onCollisionStay).not.toHaveBeenCalled();
+    }
+
+    sphere.contactEventsEnabled = true;
+    receivers[0].onCollisionStay.mockImplementationOnce(() => {
+      sphere.contactEventsEnabled = false;
+    });
+    move(0);
+    for (const receiver of receivers) {
+      expect(receiver.onCollisionStay).toHaveBeenCalledOnce();
+      expect(receiver.onCollisionEnter).not.toHaveBeenCalled();
+    }
+    expect(other.onCollisionEnter).toHaveBeenCalledOnce();
+
+    move(0.125);
+    for (const receiver of receivers) expect(receiver.onCollisionStay).toHaveBeenCalledOnce();
+    move(3);
+    move(3.25);
+    expect(other.onCollisionExit).toHaveBeenCalledOnce();
+    for (const receiver of receivers) expect(receiver.onCollisionExit).not.toHaveBeenCalled();
+
+    box.contactEventsEnabled = false;
+    box.isTrigger = true;
+    move(0);
+    move(0.25);
+    expect(other.onTriggerEnter).toHaveBeenCalledOnce();
+    for (const receiver of receivers) expect(receiver.onTriggerEnter).toHaveBeenCalledOnce();
+  });
+
   it("keeps scene-query participation independent of trigger mode", () => {
     const box = root.addComponent(BoxCollider);
     const ray = new Ray(new Vector3(0, 3, 0), new Vector3(0, -1, 0));

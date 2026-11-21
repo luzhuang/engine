@@ -580,6 +580,7 @@ export class CharacterController extends Collider {
       controller.setLayerOverrides(this._includeLayers, this._excludeLayers);
     }
     controller.setIsSceneQuery(this.isSceneQuery);
+    if (!this.contactEventsEnabled) controller.setContactEventsEnabled(false);
     if (!this._detectCollisions) controller.setDetectCollisions(false);
     controller.setClimbingMode(this._climbingMode);
     controller.setNonWalkableMode(this._nonWalkableMode);
