@@ -257,6 +257,46 @@ describe("CharacterController", () => {
     expect(controller.destroyed).toBe(true);
   });
 
+  it("keeps exclusions separate when reading a displacement triggers another move", () => {
+    role.transform.setPosition(0, 5, 0);
+    controller.stepOffset = 0;
+    const outerWall = addBox(new Vector3(1, 2, 1), new Vector3(2, 5, 0));
+    const innerWall = addBox(new Vector3(1, 2, 1), new Vector3(2, 5, 6));
+    const target = root.createChild("inner");
+    target.transform.setPosition(0, 5, 6);
+    const inner = target.addComponent(CharacterController);
+    inner.stepOffset = 0;
+    const offset = new Vector3(5, 0, 0);
+    let nestedFlags: ControllerCollisionFlag | undefined;
+    class NestedDisplacement extends Vector3 {
+      override get x(): number {
+        nestedFlags ??= inner.move(offset, 0, undefined, { exclude: [innerWall] });
+        return offset.x;
+      }
+    }
+
+    const flags = controller.move(new NestedDisplacement(), 0, undefined, { exclude: [outerWall] });
+    expect(flags).toBe(ControllerCollisionFlag.None);
+    expect(nestedFlags).toBe(ControllerCollisionFlag.None);
+    expect(role.transform.worldPosition.x).toBeCloseTo(5);
+    expect(target.transform.worldPosition.x).toBeCloseTo(5);
+  });
+
+  it("preserves the authored position when a move filter disables the controller", () => {
+    role.transform.setPosition(0, 5, 0);
+    controller.move(new Vector3());
+    const flags = controller.move(new Vector3(5, 0, 0), 0, undefined, {
+      get layerMask(): Layer {
+        controller.enabled = false;
+        role.transform.setPosition(2, 5, 0);
+        return Layer.Layer31;
+      }
+    });
+
+    expect(flags).toBe(ControllerCollisionFlag.None);
+    expect(role.transform.worldPosition.x).toBe(2);
+  });
+
   it("lets a controller-hit script apply an impulse to the contacted Rigidbody", () => {
     const box = addBox(new Vector3(1, 2, 1), new Vector3(2, 5, 0));
     const body = box.entity.addComponent(Rigidbody);
@@ -313,6 +353,44 @@ describe("CharacterController", () => {
     expect(role.transform.worldPosition.z).toBeCloseTo(-2);
     expect(role.transform.worldRotationQuaternion.w).toBe(1);
     expect(controller.isGrounded).toBe(true);
+  });
+
+  it("follows a moving platform through a wall excluded for one move", () => {
+    const platform = addBox(new Vector3(8, 1, 8), new Vector3(0, 4, 0));
+    const wall = addBox(new Vector3(1, 3, 3), new Vector3(3.6, 5.8, 0));
+    const body = platform.entity.addComponent(Rigidbody);
+    body.isKinematic = true;
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    controller.stepOffset = 0;
+    role.transform.setPosition(2, 5.54, 0);
+    physics.autoSimulation = false;
+    const downward = new Vector3(0, -0.05, 0);
+
+    physics.step();
+    controller.move(downward);
+    expect(controller.isGrounded).toBe(true);
+
+    body.move(new Vector3(1, 4.5, 0));
+    physics.step();
+    controller.move(downward, 0, undefined, { exclude: [wall] });
+    expect(role.transform.worldPosition.x).toBeCloseTo(3);
+    expect(role.transform.worldPosition.y).toBeCloseTo(6.02);
+    expect(controller.isGrounded).toBe(true);
+
+    const turn = new Quaternion();
+    Quaternion.rotationY(Math.PI / 2, turn);
+    body.move(turn);
+    physics.step();
+    controller.move(downward);
+    expect(role.transform.worldPosition.x).toBeCloseTo(1);
+    expect(role.transform.worldPosition.z).toBeCloseTo(-2);
+    expect(controller.isGrounded).toBe(true);
+
+    body.move(new Vector3(2, 4.5, 0));
+    physics.step();
+    controller.move(downward, 0, undefined, { exclude: [platform] });
+    expect(role.transform.worldPosition.x).toBeCloseTo(1);
+    expect(controller.isGrounded).toBe(false);
   });
 
   it("mirrors the center offset when the controller's scale is negative", () => {
@@ -906,6 +984,59 @@ describe("CharacterController", () => {
       physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer2, true);
       physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer3, true);
       physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer4, true);
+    });
+
+    it("expires temporary exclusions between moves without teleporting", () => {
+      role.transform.setPosition(0, 5, 0);
+      controller.stepOffset = 0;
+      const wall = addBox(new Vector3(1, 4, 4), new Vector3(2, 5, 0));
+      wall.isSceneQuery = false;
+      expect(move(new Vector3(5, 0, 0)) & ControllerCollisionFlag.Sides).toBeTruthy();
+      expect(role.transform.worldPosition.x).toBeCloseTo(0.98);
+
+      expect(controller.move(new Vector3(4, 0, 0), 0, undefined, { exclude: [wall] })).toBe(
+        ControllerCollisionFlag.None
+      );
+      expect(role.transform.worldPosition.x).toBeCloseTo(4.98);
+
+      expect(move(new Vector3(-4, 0, 0)) & ControllerCollisionFlag.Sides).toBeTruthy();
+      expect(role.transform.worldPosition.x).toBeCloseTo(3.02);
+    });
+
+    it("filters other controllers by ID and Layer31 within the scene collision policy", () => {
+      role.transform.setPosition(0, 5, 0);
+      controller.collisionLayer = Layer.Layer1;
+      controller.stepOffset = 0;
+      const target = root.createChild("target");
+      target.transform.setPosition(2, 5, 0);
+      const other = target.addComponent(CharacterController);
+      other.geometry = CharacterControllerGeometry.Box;
+      other.collisionLayer = Layer.Layer31;
+      const offset = new Vector3(5, 0, 0);
+
+      expect(controller.move(offset, 0, undefined, { layerMask: Layer.Nothing })).toBe(ControllerCollisionFlag.None);
+      expect(role.transform.worldPosition.x).toBeCloseTo(5);
+
+      offset.x = -5;
+      expect(controller.move(offset, 0, undefined, { layerMask: Layer.Layer31, exclude: [other] })).toBe(
+        ControllerCollisionFlag.None
+      );
+      expect(role.transform.worldPosition.x).toBeCloseTo(0);
+
+      offset.x = 5;
+      expect(controller.move(offset, 0, undefined, { layerMask: Layer.Layer31 }) & ControllerCollisionFlag.Sides).toBe(
+        ControllerCollisionFlag.Sides
+      );
+      expect(role.transform.worldPosition.x).toBeLessThan(1.1);
+
+      const previous = physics.getColliderLayerCollision(Layer.Layer1, Layer.Layer31);
+      try {
+        physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer31, false);
+        expect(controller.move(offset, 0, undefined, { layerMask: Layer.Layer31 })).toBe(ControllerCollisionFlag.None);
+        expect(role.transform.worldPosition.x).toBeGreaterThan(5);
+      } finally {
+        physics.setColliderLayerCollision(Layer.Layer1, Layer.Layer31, previous);
+      }
     });
 
     it("filters static and dynamic colliders and invalidates cached obstacles on matrix or layer change", () => {

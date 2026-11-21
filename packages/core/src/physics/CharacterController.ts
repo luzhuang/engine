@@ -3,6 +3,7 @@ import { MathUtil, Vector3 } from "@galacean/engine-math";
 import { ignoreClone } from "../clone/CloneDecorators";
 import { Engine } from "../Engine";
 import { Entity } from "../Entity";
+import type { Layer } from "../Layer";
 import type { Scene } from "../Scene";
 import type { Script } from "../Script";
 import { Collider } from "./Collider";
@@ -12,6 +13,14 @@ import { ControllerCollisionFlag } from "./enums/ControllerCollisionFlag";
 import { ControllerNonWalkableMode } from "./enums/ControllerNonWalkableMode";
 import type { PhysicsScene } from "./PhysicsScene";
 import { Rigidbody } from "./Rigidbody";
+
+/** Narrows the scene's collision rules for one character controller move. */
+export interface ControllerMoveFilter {
+  /** Collision layers to test. Defaults to all layers. */
+  layerMask?: Layer;
+  /** Colliders to ignore during this move, including other character controllers. */
+  exclude?: readonly Collider[];
+}
 
 /** Borrowed contact data reported by a character controller's move. */
 export interface ControllerColliderHit {
@@ -37,6 +46,7 @@ export interface ControllerColliderHit {
 export class CharacterController extends Collider {
   private static readonly _movePositions: Vector3[] = [];
   private static readonly _moveHitBatches: ControllerMoveHitBatch[] = [];
+  private static readonly _moveExclusionLists: number[][] = [];
   private static readonly _scriptIndexSetter = (script: Script, index: number): void => {
     script._entityScriptsIndex = index;
   };
@@ -347,21 +357,37 @@ export class CharacterController extends Collider {
    * @param disp - Requested displacement in world space.
    * @param minDist - Remaining distance at which the sweep stops, in world units. Defaults to 0.
    * @param elapsedTime - Time since the previous move, in seconds. Defaults to the scene's fixed timestep.
+   * @param filter - Optional collision layers and colliders to filter for this move only.
    * @returns The contact directions, or `ControllerCollisionFlag.None` if inactive or no collision is reported.
    */
-  move(disp: Vector3, minDist = 0, elapsedTime?: number): ControllerCollisionFlag {
-    const controller = this._getSyncedNative();
-    if (!controller) return ControllerCollisionFlag.None;
-    const scene = this._registeredScene!;
-    elapsedTime ??= scene.physics.fixedTimeStep;
-    const hits = this._borrowMoveHitBatch();
+  move(disp: Vector3, minDist = 0, elapsedTime?: number, filter?: ControllerMoveFilter): ControllerCollisionFlag {
+    // Resolve caller accessors before syncing or marshaling the displacement into the backend.
+    const { x, y, z } = disp;
+    const layerMask = filter?.layerMask;
+    const excluded = filter?.exclude;
+    const count = excluded?.length ?? 0;
+    const excludedIds = count > 0 ? (CharacterController._moveExclusionLists.pop() ?? []) : undefined;
+    let hits: ControllerMoveHitBatch | undefined;
+    let displacement: Vector3 | undefined;
     try {
-      const flags = controller.move(disp, minDist, elapsedTime, hits);
+      if (excludedIds) {
+        excludedIds.length = count;
+        for (let i = 0; i < count; i++) excludedIds[i] = excluded![i]._id;
+      }
+      const controller = this._getSyncedNative();
+      if (!controller) return ControllerCollisionFlag.None;
+      const scene = this._registeredScene!;
+      elapsedTime ??= scene.physics.fixedTimeStep;
+      hits = this._borrowMoveHitBatch();
+      displacement = CharacterController._movePositions.pop() ?? new Vector3();
+      const flags = controller.move(displacement.set(x, y, z), minDist, elapsedTime, hits, layerMask, excludedIds);
       this._collisionFlags = flags;
-      this._writeBackPosition(controller, elapsedTime);
+      this._writeBackPosition(controller, elapsedTime, displacement);
       if (hits?.count) this._dispatchMoveHits(hits, scene);
       return flags;
     } finally {
+      if (displacement) CharacterController._movePositions.push(displacement);
+      if (excludedIds) CharacterController._moveExclusionLists.push(excludedIds);
       if (hits) CharacterController._moveHitBatches.push(hits);
     }
   }
@@ -526,9 +552,9 @@ export class CharacterController extends Collider {
     }
   }
 
-  private _writeBackPosition(controller: ICharacterController, elapsedTime: number): void {
+  private _writeBackPosition(controller: ICharacterController, elapsedTime: number, scratch?: Vector3): void {
     const positions = CharacterController._movePositions;
-    const position = positions.pop() ?? new Vector3();
+    const position = scratch ?? positions.pop() ?? new Vector3();
     try {
       controller.getWorldPosition(position);
       const velocity = this._velocity;
@@ -545,7 +571,7 @@ export class CharacterController extends Collider {
       this._nativePosition.copyFrom(transform.worldPosition);
     } finally {
       // A custom Transform setter can move another controller before consuming this position.
-      positions.push(position);
+      if (!scratch) positions.push(position);
     }
   }
 

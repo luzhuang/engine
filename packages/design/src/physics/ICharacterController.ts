@@ -69,9 +69,18 @@ export interface ICharacterController {
    * @param minDist - The remaining distance threshold for stopping the move
    * @param elapsedTime - Time in seconds since the last call
    * @param outHits - Optional storage for contacts from this move
+   * @param layerMask - Collision layers to test in this move
+   * @param excludedShapeIds - IDs of shapes to ignore in this move
    * @returns The collision flags, or zero if the native controller is unavailable
    */
-  move(disp: Vector3, minDist: number, elapsedTime: number, outHits?: IControllerMoveHits): number;
+  move(
+    disp: Vector3,
+    minDist: number,
+    elapsedTime: number,
+    outHits?: IControllerMoveHits,
+    layerMask?: number,
+    excludedShapeIds?: readonly number[]
+  ): number;
 
   /**
    * Change the controller's height while preserving its foot.

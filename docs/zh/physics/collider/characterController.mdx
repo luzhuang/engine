@@ -80,6 +80,8 @@ label: Physics
 
 通过 `isGrounded` 或 `collisionFlags` 读取上次移动的接触状态，通过 `getVelocity(out)` 获取其实际世界速度。场景查询同帧可见新位置。
 
+在第四个参数传入 `ControllerMoveFilter` 可以限制本次移动的碰撞范围。`layerMask` 选择碰撞层，`exclude` 排除指定碰撞体，也可以排除其他角色控制器。场景碰撞矩阵和逐对忽略规则仍然生效。
+
 在移动实体的脚本中实现 `onControllerColliderHit(hit)`，即可收到控制器扫掠产生的接触。回调在实体坐标写入后、`move` 返回前执行，一次移动可能产生多次回调。数据包括命中的碰撞体、世界坐标下的接触点和法线，以及本次扫掠区段的方向和长度。需要跨回调使用时请复制。
 
 实现推动逻辑时，可以用接触数据向 `hit.collider.attachedRigidbody` 施加力或冲量。站在移动平台上时，`move` 会随支撑点的平移和旋转更新位置，实体朝向保持不变。

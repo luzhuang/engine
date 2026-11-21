@@ -1,5 +1,5 @@
 import { ICharacterController, IControllerMoveHits } from "@galacean/engine-design";
-import { ControllerClimbingMode, Vector3 } from "@galacean/engine";
+import { ControllerClimbingMode, Layer, Vector3 } from "@galacean/engine";
 import { PhysXPhysics } from "./PhysXPhysics";
 import { PhysXPhysicsMaterial } from "./PhysXPhysicsMaterial";
 import { PhysXPhysicsScene } from "./PhysXPhysicsScene";
@@ -127,9 +127,22 @@ export class PhysXCharacterController implements ICharacterController {
   /**
    * {@inheritDoc ICharacterController.move }
    */
-  move(disp: Vector3, minDist: number, elapsedTime: number, outHits?: IControllerMoveHits): number {
+  move(
+    disp: Vector3,
+    minDist: number,
+    elapsedTime: number,
+    outHits?: IControllerMoveHits,
+    layerMask: number = Layer.Everything,
+    excludedShapeIds?: readonly number[]
+  ): number {
     const controller = this._pxController;
-    const flags = controller?.move(disp, minDist, elapsedTime, outHits !== undefined) ?? 0;
+    const mask = layerMask >>> 0;
+    const filtered = mask !== Layer.Everything || excludedShapeIds?.length;
+    const collectHits = outHits !== undefined;
+    const flags =
+      (filtered
+        ? controller?.moveWithFilter(disp, minDist, elapsedTime, collectHits, mask, excludedShapeIds)
+        : controller?.move(disp, minDist, elapsedTime, collectHits)) ?? 0;
     if (outHits) {
       outHits.count = 0;
       const values: Float64Array | null = controller && this._physXPhysics._physX.getControllerMoveHits();

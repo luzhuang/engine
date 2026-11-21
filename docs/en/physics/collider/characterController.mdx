@@ -80,6 +80,8 @@ The geometry follows the Entity's world scale. `rotation` inherited from Collide
 
 Use `isGrounded` or `collisionFlags` to read the last move's contacts. Call `getVelocity(out)` to read its actual world-space velocity. Scene queries see the new pose in the same frame.
 
+Pass a `ControllerMoveFilter` as the fourth argument to limit a single move. `layerMask` selects collision layers and `exclude` skips specific colliders, including other character controllers. The scene collision matrix and pair exclusions still apply.
+
 Implement `onControllerColliderHit(hit)` on a script attached to the moving entity to receive sweep contacts. The callback runs after the entity's position is written and before `move` returns. A single move can report multiple contacts. Each hit identifies the collider and provides the world-space point, normal, direction, and length of the sweep segment. Copy any values you need to keep.
 
 Use the hit data to apply a force or impulse to `hit.collider.attachedRigidbody` when implementing pushes. While grounded on a moving platform, `move` follows the support point as the platform translates or rotates. The entity retains its facing direction.
