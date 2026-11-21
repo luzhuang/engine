@@ -1,5 +1,21 @@
 import { createPhysics } from "../../utils/physics";
-import { FixedJoint, HingeJoint, Entity, Rigidbody, BoxCollider, Engine, Scene, Script } from "@galacean/engine-core";
+import {
+  BoxCollider,
+  Collision,
+  ConfigurableJoint,
+  ConfigurableJointAxis,
+  ConfigurableJointDrive,
+  ConfigurableJointMotion,
+  Engine,
+  Entity,
+  FixedJoint,
+  ForceMode,
+  HingeJoint,
+  Joint,
+  Rigidbody,
+  Scene,
+  Script
+} from "@galacean/engine-core";
 import { WebGLEngine } from "@galacean/engine";
 import { Ray, Vector3 } from "@galacean/engine-math";
 import { vi, describe, beforeAll, afterAll, beforeEach, afterEach, expect, it } from "vitest";
@@ -58,6 +74,169 @@ describe("Joint", function () {
     engine.sceneManager.activeScene.physics._update(1);
     expect(entity.transform.position.y).toBeCloseTo(5, 5);
   });
+
+  it("clones configured motion and enforces linear limits when the clone enters the simulation", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 4, 0));
+    entity.isActive = false;
+    const joint = entity.addComponent(ConfigurableJoint);
+    joint.setMotion(ConfigurableJointAxis.X, ConfigurableJointMotion.Limited);
+    joint.setLinearLimit(ConfigurableJointAxis.X, -0.25, 0.25);
+    joint.setMotion(ConfigurableJointAxis.Twist, ConfigurableJointMotion.Free);
+
+    const clone = entity.clone();
+    clone.transform.setPosition(0, 6, 0);
+    rootEntity.addChild(clone);
+    clone.isActive = true;
+    joint.setMotion(ConfigurableJointAxis.X, ConfigurableJointMotion.Free);
+
+    const cloneJoint = clone.getComponent(ConfigurableJoint);
+    expect(cloneJoint.getMotion(ConfigurableJointAxis.X)).toBe(ConfigurableJointMotion.Limited);
+    const body = clone.getComponent(Rigidbody);
+    body.applyForce(new Vector3(5, 4, 0), ForceMode.Impulse);
+    body.applyTorque(new Vector3(0.5, 0, 0), ForceMode.Impulse);
+    physics._update(0.5);
+    expect(clone.transform.worldPosition.x).toBeCloseTo(0.25, 2);
+    expect(clone.transform.worldPosition.y).toBeCloseTo(6, 5);
+    expect(Math.abs(body.angularVelocity.x)).toBeGreaterThan(0.1);
+  });
+
+  it("drives a free axis toward its target velocity", () => {
+    const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 4, 0));
+    const joint = entity.addComponent(ConfigurableJoint);
+    joint.setMotion(ConfigurableJointAxis.X, ConfigurableJointMotion.Free);
+    joint.setDrive(ConfigurableJointDrive.X, 0, 20);
+    joint.setDriveVelocity(new Vector3(2, 0, 0), new Vector3());
+
+    engine.sceneManager.activeScene.physics._update(1);
+    const body = entity.getComponent(Rigidbody);
+    expect(Math.abs(body.linearVelocity.x)).toBeCloseTo(2, 2);
+    expect(body.linearVelocity.y).toBeCloseTo(0, 5);
+  });
+
+  it("refilters only the connected body pairs when a compound joint is added, switched or removed", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    physics.gravity.set(0, 0, 0);
+    const addCompound = (x: number) => {
+      const entity = addBox(new Vector3(1, 1, 1), new Vector3(x, 4, 0));
+      const child = entity.createChild("second collider");
+      child.transform.setPosition(0, 0, 2);
+      child.addComponent(BoxCollider).size.set(1, 1, 1);
+      return entity;
+    };
+
+    const entity = addCompound(0);
+    entity.getComponent(Rigidbody).maxDepenetrationVelocity = 0;
+    const left = addCompound(-0.95);
+    const right = addCompound(0.95);
+    const leftBody = left.getComponent(Rigidbody);
+    const rightBody = right.getComponent(Rigidbody);
+    leftBody.isKinematic = true;
+    rightBody.isKinematic = true;
+
+    const enter = vi.fn();
+    const exit = vi.fn();
+    const record = (collision: Collision) => {
+      const other = collision.collider.entity;
+      return other.parent === rootEntity ? other : other.parent;
+    };
+    class CollisionObserver extends Script {
+      override onCollisionEnter(collision: Collision): void {
+        enter(record(collision));
+      }
+
+      override onCollisionExit(collision: Collision): void {
+        exit(record(collision));
+      }
+    }
+    entity.addComponent(CollisionObserver);
+    const step = () => physics._update(physics.fixedTimeStep);
+    const expectPair = (events: typeof enter, other: Entity) => {
+      expect(events.mock.calls).toHaveLength(2);
+      expect(events.mock.calls.every(([eventEntity]) => eventEntity === other)).toBe(true);
+      events.mockClear();
+    };
+
+    step();
+    expect(enter).toHaveBeenCalledTimes(4);
+    enter.mockClear();
+
+    const joint = entity.addComponent(FixedJoint);
+    joint.connectedBody = rightBody;
+    step();
+    expectPair(exit, right);
+    expect(enter).not.toHaveBeenCalled();
+
+    joint.connectedBody = leftBody;
+    step();
+    expectPair(exit, left);
+    expectPair(enter, right);
+
+    joint.enableCollision = true;
+    step();
+    expectPair(enter, left);
+    expect(exit).not.toHaveBeenCalled();
+
+    joint.enableCollision = false;
+    step();
+    expectPair(exit, left);
+
+    joint.destroy();
+    step();
+    expectPair(enter, left);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it.each(["keep", "destroy", "reconnect and destroy"])(
+    "reports the reaction force and dispatches one break (%s)",
+    (action) => {
+      const physics = engine.sceneManager.activeScene.physics;
+      const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 4, 0));
+      const body = entity.getComponent(Rigidbody);
+      body.useGravity = false;
+      const joint = entity.addComponent(FixedJoint);
+      const first = vi.fn();
+      const second = vi.fn();
+      class BreakObserver extends Script {
+        override onJointBreak(brokenJoint: Joint): void {
+          first(brokenJoint, brokenJoint.isBroken);
+          if (action === "reconnect and destroy") {
+            brokenJoint.connectedBody = rootEntity.createChild("new anchor").addComponent(Rigidbody);
+          }
+          if (action !== "keep") brokenJoint.destroy();
+        }
+      }
+      class LaterObserver extends Script {
+        override onJointBreak(brokenJoint: Joint): void {
+          second(brokenJoint);
+        }
+      }
+      entity.addComponent(BreakObserver);
+      entity.addComponent(LaterObserver);
+
+      const force = new Vector3();
+      const torque = new Vector3();
+      body.applyForce(new Vector3(8, 0, 0));
+      physics._update(physics.fixedTimeStep);
+      joint.getReactionForce(force, torque);
+      expect(Math.abs(force.x)).toBeCloseTo(8, 3);
+      expect(torque.lengthSquared()).toBeCloseTo(0, 5);
+      expect(joint.isBroken).toBe(false);
+
+      joint.breakForce = 1;
+      body.applyForce(new Vector3(8, 0, 0));
+      physics._update(physics.fixedTimeStep);
+      physics._update(physics.fixedTimeStep);
+      expect(first).toHaveBeenCalledExactlyOnceWith(joint, true);
+      if (action !== "keep") {
+        expect(second).not.toHaveBeenCalled();
+        expect(joint.destroyed).toBe(true);
+      } else {
+        expect(second).toHaveBeenCalledExactlyOnceWith(joint);
+        expect(joint.isBroken).toBe(true);
+      }
+    }
+  );
 
   it("connected to null", function () {
     const box = addBox(new Vector3(1, 1, 1), new Vector3(0, 0, 0));
@@ -193,137 +372,44 @@ describe("Joint", function () {
     expect(box.transform.rotation.z).toBeCloseTo(0, 4);
   });
 
-  it("massScale", function () {
-    engine.sceneManager.activeScene.physics.gravity = new Vector3(0, -1, 0);
-    const box1 = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
-    const box2 = addBox(new Vector3(1, 1, 1), new Vector3(0, 1, 0));
-    const box1Collider = box1.getComponent(Rigidbody);
-    const box2Collider = box2.getComponent(Rigidbody);
-    box1Collider.isKinematic = true;
-    const fixedJoint = box2.addComponent(FixedJoint);
-    fixedJoint.connectedBody = box1.getComponent(Rigidbody);
-    fixedJoint.automaticConnectedAnchor = true;
-    fixedJoint.breakForce = 10;
+  it.each([
+    ["massScale", 1],
+    ["connectedMassScale", 10]
+  ] as const)("applies %s to inverse mass and inertia", (property, share) => {
+    const physics = engine.sceneManager.activeScene.physics;
+    const dt = physics.fixedTimeStep;
+    physics.gravity.set(0, 0, 0);
+    const box1 = addBox(new Vector3(1, 1, 1), new Vector3());
+    const box2 = addBox(new Vector3(1, 1, 1), new Vector3());
+    const body1 = box1.getComponent(Rigidbody);
+    const body2 = box2.getComponent(Rigidbody);
+    for (const body of [body1, body2]) {
+      body.angularDamping = 0;
+      body.automaticInertiaTensor = false;
+      body.inertiaTensor.set(1, 1, 1);
+    }
+    const joint = box1.addComponent(FixedJoint);
+    joint.connectedBody = body2;
+    joint[property] = 10;
 
-    fixedJoint.massScale = 10;
-    expect(fixedJoint.massScale).eq(10);
+    body1.applyImpulse(new Vector3(11, 0, 0));
+    body1.applyTorque(new Vector3(11 / dt, 0, 0));
+    physics._update(dt);
 
-    engine.sceneManager.activeScene.physics._update(1);
-    expect(box2Collider.linearVelocity.y).eq(0);
-
-    fixedJoint.massScale = 10.01;
-    expect(fixedJoint.massScale).eq(10.01);
-    box2Collider.wakeUp();
-    engine.sceneManager.activeScene.physics._update(1);
-    expect(box2Collider.linearVelocity.y).lessThan(0);
+    expect(body2.linearVelocity.x).toBeCloseTo(share, 4);
+    expect(body2.angularVelocity.x).toBeCloseTo(share, 4);
   });
 
-  it("connectedMassScale", function () {
-    engine.sceneManager.activeScene.physics.gravity = new Vector3(0, -1, 0);
-    const box1 = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
-    const box2 = addBox(new Vector3(1, 1, 1), new Vector3(0, 1, 0));
-    const box1Collider = box1.getComponent(Rigidbody);
-    const box2Collider = box2.getComponent(Rigidbody);
-    box1Collider.isKinematic = true;
-    const fixedJoint = box1.addComponent(FixedJoint);
-    fixedJoint.connectedBody = box2.getComponent(Rigidbody);
-    fixedJoint.automaticConnectedAnchor = true;
-    fixedJoint.breakForce = 10;
-
-    fixedJoint.connectedMassScale = 10;
-    expect(fixedJoint.connectedMassScale).eq(10);
-
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.linearVelocity.y).eq(0);
-
-    fixedJoint.connectedMassScale = 10.01;
-    expect(fixedJoint.connectedMassScale).eq(10.01);
-    engine.sceneManager.activeScene.physics._update(1);
-    expect(box2Collider.linearVelocity.y).lessThan(0);
-  });
-
-  it("inertiaScale", function () {
-    engine.sceneManager.activeScene.physics.gravity = new Vector3(0, 0, 0);
-    const box1 = addBox(new Vector3(1, 1, 1), new Vector3(0, 1, 0));
-    const box2 = addBox(new Vector3(1, 1, 1), new Vector3(1, 1, 0));
-    const fixedJoint = box2.addComponent(FixedJoint);
-    const box2Collider = box2.getComponent(Rigidbody);
-    const box1Collider = (fixedJoint.connectedBody = box1.getComponent(Rigidbody));
-    box1Collider.automaticInertiaTensor = false;
-    box2Collider.automaticInertiaTensor = false;
-    box1Collider.mass = 0.00001;
-    box1Collider.inertiaTensor = new Vector3(1, 1, 1);
-    box2Collider.inertiaTensor = new Vector3(1, 1, 1);
-    fixedJoint.automaticConnectedAnchor = true;
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(8.32635, 5);
-
-    box2.transform.rotation = new Vector3(0, 0, 0);
-    box1Collider.angularVelocity = new Vector3(0, 0, 0);
-    box2Collider.angularVelocity = new Vector3(0, 0, 0);
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(formatValue(box2Collider.angularVelocity.y)).closeTo(0, 0.01);
-
-    box2Collider.inertiaTensor.y *= 10;
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(1.51393, 4);
-
-    box2.transform.rotation = new Vector3(0, 0, 0);
-    box2Collider.inertiaTensor.y = 1;
-    box1Collider.angularVelocity = new Vector3(0, 0, 0);
-    box2Collider.angularVelocity = new Vector3(0, 0, 0);
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(formatValue(box2Collider.angularVelocity.y)).closeTo(0, 0.01);
-
-    fixedJoint.inertiaScale = 10;
-    expect(fixedJoint.inertiaScale).eq(10);
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(1.51393, 4);
-  });
-
-  it("connectedInertiaScale", function () {
-    engine.sceneManager.activeScene.physics.gravity = new Vector3(0, 0, 0);
-    const box1 = addBox(new Vector3(1, 1, 1), new Vector3(0, 1, 0));
-    const box2 = addBox(new Vector3(1, 1, 1), new Vector3(1, 1, 0));
-    const fixedJoint = box1.addComponent(FixedJoint);
-    const box1Collider = box1.getComponent(Rigidbody);
-    const box2Collider = (fixedJoint.connectedBody = box2.getComponent(Rigidbody));
-    box1Collider.automaticInertiaTensor = false;
-    box2Collider.automaticInertiaTensor = false;
-    box1Collider.mass = 0.00001;
-    box1Collider.inertiaTensor = new Vector3(1, 1, 1);
-    box2Collider.inertiaTensor = new Vector3(1, 1, 1);
-    fixedJoint.automaticConnectedAnchor = true;
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(8.32635, 5);
-
-    box2.transform.rotation = new Vector3(0, 0, 0);
-    box1Collider.angularVelocity = new Vector3(0, 0, 0);
-    box2Collider.angularVelocity = new Vector3(0, 0, 0);
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(formatValue(box2Collider.angularVelocity.y)).closeTo(0, 0.01);
-
-    box2Collider.inertiaTensor.y *= 10;
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(1.51393, 4);
-
-    box2.transform.rotation = new Vector3(0, 0, 0);
-    box2Collider.inertiaTensor.y = 1;
-    box1Collider.angularVelocity = new Vector3(0, 0, 0);
-    box2Collider.angularVelocity = new Vector3(0, 0, 0);
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(formatValue(box2Collider.angularVelocity.y)).closeTo(0, 0.01);
-
-    fixedJoint.connectedInertiaScale = 10;
-    expect(fixedJoint.connectedInertiaScale).eq(10);
-    box2Collider.applyTorque(new Vector3(0, 1000, 0));
-    engine.sceneManager.activeScene.physics._update(1 / 60);
-    expect(box2Collider.angularVelocity.y).toBeCloseTo(1.51393, 4);
+  it.each(["breakForce", "breakTorque"] as const)("retains %s after rejecting an invalid threshold", (property) => {
+    const joint = rootEntity.createChild("joint").addComponent(FixedJoint);
+    expect(joint[property]).toBe(Infinity);
+    joint[property] = 4;
+    for (const value of [-1, -Infinity, NaN]) {
+      expect(() => (joint[property] = value)).toThrow(RangeError);
+      expect(joint[property]).toBe(4);
+    }
+    joint[property] = Number.MAX_VALUE;
+    expect(joint[property]).toBe(Number.MAX_VALUE);
   });
 
   it("breakForce", function () {
@@ -431,9 +517,7 @@ describe("Joint", function () {
     fixedJoint.anchor = new Vector3(0, 3, 0);
     fixedJoint.connectedAnchor = new Vector3(0, 3, 0);
     fixedJoint.massScale = 3;
-    fixedJoint.inertiaScale = 3;
     fixedJoint.connectedMassScale = 3;
-    fixedJoint.connectedInertiaScale = 3;
     fixedJoint.breakForce = 3;
     fixedJoint.breakTorque = 3;
     box2.getComponent(Rigidbody).isKinematic = true;

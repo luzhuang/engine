@@ -9,6 +9,7 @@ import { DisorderedArray } from "../utils/DisorderedArray";
 import { Collider } from "./Collider";
 import { Collision } from "./Collision";
 import { HitResult } from "./HitResult";
+import { Joint } from "./joint/Joint";
 import { Rigidbody } from "./Rigidbody";
 
 /**
@@ -44,7 +45,7 @@ export class PhysicsScene {
   private _massDirtyBodies: Rigidbody[] = [];
   private _pendingSleeps?: Set<Rigidbody>;
   private _collision: Collision;
-  private readonly _eventTargets = new Map<number, Rigidbody>();
+  private readonly _eventTargets = new Map<number, Joint | Rigidbody>();
   private _nextEventId = 0;
 
   private _gravity: Vector3 = new Vector3(0, -9.81, 0);
@@ -851,7 +852,7 @@ export class PhysicsScene {
   }
 
   /** @internal */
-  _registerEventTarget(target: Rigidbody): number {
+  _registerEventTarget(target: Joint | Rigidbody): number {
     const id = ++this._nextEventId;
     this._eventTargets.set(id, target);
     return id;
@@ -922,7 +923,7 @@ export class PhysicsScene {
 
   private _dispatchEvents(events: IPhysicsEvents): void {
     const physicalObjectsMap = Engine._physicalObjectsMap;
-    const { contactEvents, contactEventCount, triggerEvents } = events;
+    const { contactEvents, contactEventCount, triggerEvents, brokenJointIds } = events;
 
     if (contactEventCount > 0) {
       const collision = (this._collision ||= new Collision());
@@ -954,15 +955,19 @@ export class PhysicsScene {
       PhysicsScene._dispatchScripts(state, collider1, collider0);
     }
 
+    for (let i = 0; i < brokenJointIds.length; i++) {
+      this._dispatchEventTarget(brokenJointIds[i], "onJointBreak");
+    }
+
     const { bodySleepEventIds, bodySleepEventCount } = events;
     for (let i = 0; i < bodySleepEventCount; i++) {
       const id = bodySleepEventIds[i];
-      if (id < 0) this._dispatchSleepEvent(-id, "onSleep");
-      else this._dispatchSleepEvent(id, "onWake");
+      if (id < 0) this._dispatchEventTarget(-id, "onSleep");
+      else this._dispatchEventTarget(id, "onWake");
     }
   }
 
-  private _dispatchSleepEvent(id: number, method: "onSleep" | "onWake"): void {
+  private _dispatchEventTarget(id: number, method: "onJointBreak" | "onSleep" | "onWake"): void {
     const targets = this._eventTargets;
     const target = targets.get(id);
     if (!target) return;
@@ -975,7 +980,8 @@ export class PhysicsScene {
       for (let i = 0; i < count; i++) {
         const script = elements[i];
         if (!script) continue;
-        script[method]?.(target);
+        if (method === "onJointBreak") script.onJointBreak(target as Joint);
+        else script[method]?.(target as Rigidbody);
         if (!targets.has(id)) break;
       }
     } finally {

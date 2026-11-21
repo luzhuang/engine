@@ -1,0 +1,22 @@
+---
+order: 4
+title: Configurable Joint
+type: Physics
+label: Physics
+---
+
+A configurable joint controls motion along and around each of the X, Y, and Z axes in the owning body's joint frame. Each axis starts locked. Use `setMotion` to make an axis free or limited. Linear limits use scene length units, while twist and swing limits use radians.
+
+```typescript
+const joint = entity.addComponent(ConfigurableJoint);
+joint.connectedBody = carriage.getComponent(Rigidbody);
+
+joint.setLinearLimit(ConfigurableJointAxis.X, -0.5, 0.5);
+joint.setMotion(ConfigurableJointAxis.X, ConfigurableJointMotion.Limited);
+joint.setDrive(ConfigurableJointDrive.X, 20, 4, 50);
+joint.setDrivePosition(new Vector3(0.3, 0, 0), new Quaternion());
+```
+
+The drive target describes the connected frame relative to the owning frame. A drive can control position through stiffness and velocity through damping. The force limit is in newtons for a linear drive or newton-metres for an angular drive. Set the optional acceleration parameter to scale drive strength independently of the bodies' mass.
+
+Use `setTwistLimit` for rotation around X and `setSwingLimit` for symmetric bounds around Y and Z. The swing limits form an elliptical cone when both axes are limited. SLERP drive requires all three angular axes to be unlocked.

@@ -11,7 +11,7 @@ export interface IHingeJoint extends IJoint {
   setAxis(value: Vector3): void;
 
   /**
-   * The current angle in degrees of the joint relative to its rest position.
+   * The current angle in radians of the joint relative to its rest position.
    */
   getAngle(): number;
 
@@ -22,20 +22,26 @@ export interface IHingeJoint extends IJoint {
 
   /**
    * Set an angular hard limit.
-   * @param lowerLimit - The lower angle in degrees
-   * @param upperLimit - The upper angle in degrees
+   * @param lowerLimit - The lower angle in radians
+   * @param upperLimit - The upper angle in radians
    * @param contactDist - How far inside the limit it becomes active, in radians
+   * @param restitution - The coefficient of restitution in [0, 1]
    */
-  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number): void;
+  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number, restitution: number): void;
 
   /**
    * Set an angular limit with spring response.
-   * @param lowerLimit - The lower angle in degrees
-   * @param upperLimit - The upper angle in degrees
+   * @param lowerLimit - The lower angle in radians
+   * @param upperLimit - The upper angle in radians
    * @param stiffness - The limit spring stiffness
    * @param damping - The limit spring damping
    */
   setSoftLimit(lowerLimit: number, upperLimit: number, stiffness: number, damping: number): void;
+
+  /**
+   * Set whether angular limits can extend beyond ±π radians.
+   */
+  setExtendedLimits(value: boolean): void;
 
   /**
    * Set the drive target angular velocity in radians per second.
@@ -43,8 +49,7 @@ export interface IHingeJoint extends IJoint {
   setDriveVelocity(velocity: number): void;
 
   /**
-   * sets the maximum torque the drive can exert.
-   * @param limit the maximum torque
+   * Sets the maximum torque the drive can exert in newton-metres.
    */
   setDriveForceLimit(limit: number): void;
 

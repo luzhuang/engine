@@ -21,7 +21,7 @@ export interface IJoint {
   setAnchor(value: Vector3): void;
 
   /**
-   * Set the connected actor’s mass multiplier for this constraint.
+   * Set the connected actor’s inverse mass and inverse inertia multiplier for this constraint.
    */
   setConnectedMassScale(value: number): void;
 
@@ -31,19 +31,19 @@ export interface IJoint {
   setRotation(value: Quaternion): void;
 
   /**
-   * Set the owning actor’s mass multiplier for this constraint.
+   * Set the owning actor’s inverse mass and inverse inertia multiplier for this constraint.
    */
   setMassScale(value: number): void;
 
   /**
-   * The scale to apply to the inverse inertia of collider1 for resolving this constraint.
+   * Set whether the connected actors can collide.
    */
-  setConnectedInertiaScale(value: number): void;
+  setEnableCollision(value: boolean): void;
 
   /**
-   * The scale to apply to the inverse inertia of collider0 for resolving this constraint.
+   * Set whether the solver preprocesses the constraint.
    */
-  setInertiaScale(value: number): void;
+  setEnablePreprocessing(value: boolean): void;
 
   /**
    * The maximum force the joint can apply before breaking.
@@ -54,6 +54,15 @@ export interface IJoint {
    * The maximum torque the joint can apply before breaking.
    */
   setBreakTorque(value: number): void;
+
+  /** Assigns the scene-local identifier reported on constraint break. */
+  setBreakEventId(id: number): void;
+
+  /** Whether the native constraint has broken. */
+  isBroken(): boolean;
+
+  /** Writes the last constraint force and torque into the supplied vectors. */
+  getReactionForce(force: Vector3, torque: Vector3): void;
 
   /**
    * Destroy the joint.

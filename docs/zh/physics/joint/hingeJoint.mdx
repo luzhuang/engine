@@ -56,11 +56,15 @@ label: Physics
 
 | 属性            | 描述                                                                 |
 | --------------- | -------------------------------------------------------------------- |
-| **min**         | 最小角度限制（度）                                                  |
-| **max**         | 最大角度限制（度）                                                  |
-| **contactDistance** | 接触距离，定义限制器开始生效的距离                               |
-| **stiffness**   | 弹簧刚度（仅在 useSpring 为 true 时生效）                           |
-| **damping**     | 阻尼系数（仅在 useSpring 为 true 时生效）                           |
+| **min** | 角度下限，单位为弧度 |
+| **max** | 角度上限，单位为弧度 |
+| **contactDistance** | 硬限制提前生效的角距离，单位为弧度 |
+| **bounciness** | 硬限制的反弹系数，取值 0 到 1，默认 0。PhysX 仅在撞击角速度超过 0.5 弧度/秒时考虑反弹。 |
+| **stiffness** | 弹性限制的刚度 |
+| **damping** | 弹性限制的阻尼 |
+
+- 启用 [**useSoftLimits**](/apis/core/#HingeJoint-useSoftLimits) 后，超过角度边界时施加弹簧力。
+- 启用 [**extendedLimits**](/apis/core/#HingeJoint-extendedLimits) 可设置超出 ±π 弧度的角度边界。
 
 ### 马达驱动
 - [**useMotor**](/apis/core/#HingeJoint-useMotor)  
@@ -72,13 +76,9 @@ label: Physics
 | 属性            | 描述                                                                 |
 | --------------- | -------------------------------------------------------------------- |
 | **targetVelocity** | 目标角速度（弧度/秒）                                               |
-| **forceLimit**  | 最大扭矩限制                                                        |
+| **forceLimit**  | 最大驱动扭矩（牛·米）                                                        |
 | **freeSpin**    | 是否允许自由旋转                                                    |
 | **gearRatio**   | 齿轮比，用于调整实际输出的角速度                                    |
-
-### 弹性设置
-- [**useSpring**](/apis/core/#HingeJoint-useSpring)  
-  是否启用弹簧效果。启用后，限制器会表现出弹性特征。
 
 ### 断裂阈值
 - [**breakForce**](/apis/core/#HingeJoint-breakForce)  
@@ -89,7 +89,7 @@ label: Physics
 
 ### 质量计算干预
 - [**connectedMassScale**](/apis/core/#HingeJoint-connectedMassScale) 和 [**massScale**](/apis/core/#HingeJoint-massScale)  
-  调整连接刚体和自身刚体的质量影响。默认值为 1.0。
+  在关节求解时，分别缩放连接刚体和自身刚体的逆质量与逆惯量。默认值均为 1，数值越大，对应刚体越容易受关节带动。
 
 ## 脚本使用
 
@@ -112,12 +112,12 @@ hingeJoint.axis.set(0, 1, 0);
 // 启用角度限制
 hingeJoint.useLimits = true;
 hingeJoint.limits = new JointLimits();
-hingeJoint.limits.min = -45;         // 最小角度
-hingeJoint.limits.max = 45;          // 最大角度
+hingeJoint.limits.min = -Math.PI / 4;         // 最小角度
+hingeJoint.limits.max = Math.PI / 4;          // 最大角度
 hingeJoint.limits.contactDistance = 0.1; // 距任一边界 0.1 弧度时启用硬限制。
 
 // 启用弹性限制
-hingeJoint.useSpring = true;
+hingeJoint.useSoftLimits = true;
 hingeJoint.limits.stiffness = 100;  // 弹簧刚度
 hingeJoint.limits.damping = 0.2;    // 阻尼系数
 ```
@@ -137,7 +137,7 @@ hingeJoint.motor.gearRatio = 1;         // 齿轮比
 ### 获取运动信息
 
 ```typescript
-// 获取当前角度
+// 获取当前角度，单位为弧度。
 const currentAngle = hingeJoint.angle;
 
 // 获取当前角速度

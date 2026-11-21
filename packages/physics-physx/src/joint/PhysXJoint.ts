@@ -55,38 +55,26 @@ export class PhysXJoint implements IJoint {
     this._rotation.copyFrom(value);
   }
 
-  /**
-   * {@inheritDoc IJoint.setMassScale }
-   */
+  /** {@inheritDoc IJoint.setMassScale} */
   setMassScale(value: number): void {
-    const inv = Math.fround(1 / value);
-    if (inv > 0 && Number.isFinite(inv)) {
-      this._pxJoint.setInvMassScale0(inv);
-    }
-  }
-
-  /**
-   * {@inheritDoc IJoint.setConnectedMassScale }
-   */
-  setConnectedMassScale(value: number): void {
-    const inv = Math.fround(1 / value);
-    if (inv > 0 && Number.isFinite(inv)) {
-      this._pxJoint.setInvMassScale1(inv);
-    }
-  }
-
-  /**
-   * {@inheritDoc IJoint.setInertiaScale }
-   */
-  setInertiaScale(value: number): void {
+    this._pxJoint.setInvMassScale0(value);
     this._pxJoint.setInvInertiaScale0(value);
   }
 
-  /**
-   * {@inheritDoc IJoint.setConnectedInertiaScale }
-   */
-  setConnectedInertiaScale(value: number): void {
+  /** {@inheritDoc IJoint.setConnectedMassScale} */
+  setConnectedMassScale(value: number): void {
+    this._pxJoint.setInvMassScale1(value);
     this._pxJoint.setInvInertiaScale1(value);
+  }
+
+  /** {@inheritDoc IJoint.setEnableCollision} */
+  setEnableCollision(value: boolean): void {
+    this._pxJoint.setConstraintFlag(PhysXConstraintFlag.CollisionEnabled, value);
+  }
+
+  /** {@inheritDoc IJoint.setEnablePreprocessing} */
+  setEnablePreprocessing(value: boolean): void {
+    this._pxJoint.setConstraintFlag(PhysXConstraintFlag.DisablePreprocessing, !value);
   }
 
   /**
@@ -103,6 +91,21 @@ export class PhysXJoint implements IJoint {
   setBreakTorque(value: number): void {
     this._breakTorque = value;
     this._pxJoint.setBreakForce(this._breakForce, this._breakTorque);
+  }
+
+  /** {@inheritDoc IJoint.setBreakEventId} */
+  setBreakEventId(id: number): void {
+    this._pxJoint.setBreakEventId(id);
+  }
+
+  /** {@inheritDoc IJoint.isBroken} */
+  isBroken(): boolean {
+    return this._pxJoint.isBroken();
+  }
+
+  /** {@inheritDoc IJoint.getReactionForce} */
+  getReactionForce(force: Vector3, torque: Vector3): void {
+    this._pxJoint.getReactionForce(force, torque);
   }
 
   /**
@@ -123,4 +126,11 @@ export class PhysXJoint implements IJoint {
   protected _setLocalPose(actor: number, position: Vector3, rotation: Quaternion): void {
     this._pxJoint.setLocalPose(actor, position, rotation);
   }
+}
+
+export const enum PhysXConstraintFlag {
+  CollisionEnabled = 1 << 3,
+  DriveLimitsAreForces = 1 << 5,
+  DisablePreprocessing = 1 << 8,
+  ExtendedLimits = 1 << 9
 }

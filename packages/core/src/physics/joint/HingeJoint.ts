@@ -2,6 +2,7 @@ import { IDynamicCollider, IHingeJoint } from "@galacean/engine-design";
 import { Vector3 } from "@galacean/engine-math";
 import { Engine } from "../../Engine";
 import { HingeJointFlag } from "../enums/HingeJointFlag";
+import { Scene } from "../../Scene";
 import { Joint } from "./Joint";
 import { JointLimits } from "./JointLimits";
 import { JointMotor } from "./JointMotor";
@@ -16,7 +17,8 @@ export class HingeJoint extends Joint {
   @ignoreClone
   private _lastValidAxis?: Vector3;
   private _hingeFlags = HingeJointFlag.None;
-  private _useSpring = false;
+  private _useSoftLimits = false;
+  private _extendedLimits = false;
   private _jointMotor: JointMotor | null = null;
   private _limits: JointLimits | null = null;
   @ignoreClone
@@ -39,7 +41,7 @@ export class HingeJoint extends Joint {
   }
 
   /**
-   * The current angle in degrees of the joint relative to its rest position.
+   * The current angle in radians of the joint relative to its rest position.
    */
   get angle(): number {
     const nativeJoint = <IHingeJoint>this._nativeJoint;
@@ -61,7 +63,7 @@ export class HingeJoint extends Joint {
   }
 
   /**
-   * Angular limits take effect when this flag is true and {@link limits} is assigned.
+   * Angular limits take effect when this flag is true and {@link limits} defines an ordered range.
    * @defaultValue false
    */
   get useLimits(): boolean {
@@ -71,10 +73,7 @@ export class HingeJoint extends Joint {
   set useLimits(value: boolean) {
     if (value !== this.useLimits) {
       value ? (this._hingeFlags |= HingeJointFlag.LimitEnabled) : (this._hingeFlags &= ~HingeJointFlag.LimitEnabled);
-      this._syncLimitsEnabled();
-      if (this._nativeJoint) {
-        this._wakeBodies();
-      }
+      this._onLimitsChanged();
     }
   }
 
@@ -97,16 +96,35 @@ export class HingeJoint extends Joint {
   }
 
   /**
-   * Uses a spring to enforce enabled angular limits. Disabled by default.
+   * Whether to apply a spring response at the limits.
+   * @defaultValue false
    */
-  get useSpring(): boolean {
-    return this._useSpring;
+  get useSoftLimits(): boolean {
+    return this._useSoftLimits;
   }
 
-  set useSpring(value: boolean) {
-    if (this._useSpring !== value) {
-      this._useSpring = value;
+  set useSoftLimits(value: boolean) {
+    if (this._useSoftLimits !== value) {
+      this._useSoftLimits = value;
       this._onLimitsChanged();
+    }
+  }
+
+  /**
+   * Whether angular limits can extend beyond ±π radians.
+   * @defaultValue false
+   */
+  get extendedLimits(): boolean {
+    return this._extendedLimits;
+  }
+
+  set extendedLimits(value: boolean) {
+    if (this._extendedLimits !== value) {
+      this._extendedLimits = value;
+      if (this._nativeJoint) {
+        (<IHingeJoint>this._nativeJoint).setExtendedLimits(value);
+        this._wakeBodies();
+      }
     }
   }
 
@@ -146,11 +164,7 @@ export class HingeJoint extends Joint {
       this._limits = value;
       value?._updateFlagManager.addListener(this._onLimitsChanged);
 
-      this._syncLimitsEnabled();
       this._onLimitsChanged();
-      if (!value && this._nativeJoint) {
-        this._wakeBodies();
-      }
     }
   }
 
@@ -163,13 +177,13 @@ export class HingeJoint extends Joint {
   }
 
   /** @internal */
-  protected override _destroyNativeJoint(): void {
+  protected override _destroyNativeJoint(scene: Scene): void {
     const nativeJoint = <IHingeJoint | null>this._nativeJoint;
     if (nativeJoint) {
       this._angle = nativeJoint.getAngle();
       this._velocity = nativeJoint.getVelocity();
     }
-    super._destroyNativeJoint();
+    super._destroyNativeJoint(scene);
   }
 
   /**
@@ -197,17 +211,10 @@ export class HingeJoint extends Joint {
     super._syncNative();
     const nativeJoint = <IHingeJoint>this._nativeJoint;
     nativeJoint.setAxis(this._axis);
-    this._syncLimitsEnabled();
+    nativeJoint.setExtendedLimits(this._extendedLimits);
     this._syncMotorEnabled();
     this._onMotorChanged();
     this._onLimitsChanged();
-  }
-
-  private _syncLimitsEnabled(): void {
-    (<IHingeJoint>this._nativeJoint)?.setHingeJointFlag(
-      HingeJointFlag.LimitEnabled,
-      this.useLimits && this._limits !== null
-    );
   }
 
   private _syncMotorEnabled(): void {
@@ -231,12 +238,17 @@ export class HingeJoint extends Joint {
 
   @ignoreClone
   private _onLimitsChanged() {
-    const limits = this._limits;
-    if (limits && this._nativeJoint) {
-      if (this.useSpring) {
-        (<IHingeJoint>this._nativeJoint).setSoftLimit(limits.min, limits.max, limits.stiffness, limits.damping);
-      } else {
-        (<IHingeJoint>this._nativeJoint).setHardLimit(limits.min, limits.max, limits.contactDistance);
+    const nativeJoint = <IHingeJoint | null>this._nativeJoint;
+    if (nativeJoint) {
+      const limits = this._limits;
+      const enabled = this.useLimits && limits !== null && limits.min <= limits.max;
+      nativeJoint.setHingeJointFlag(HingeJointFlag.LimitEnabled, enabled);
+      if (enabled) {
+        if (this._useSoftLimits) {
+          nativeJoint.setSoftLimit(limits.min, limits.max, limits.stiffness, limits.damping);
+        } else {
+          nativeJoint.setHardLimit(limits.min, limits.max, limits.contactDistance, limits.bounciness);
+        }
       }
       this._wakeBodies();
     }

@@ -72,7 +72,7 @@ label: Physics
 
 ### 质量计算干预
 - [**connectedMassScale**](/apis/core/#SpringJoint-connectedMassScale) 和 [**massScale**](/apis/core/#SpringJoint-massScale)  
-  分别用于调整连接刚体和自身刚体的质量影响。这些缩放值会影响关节约束的计算，允许你微调关节的物理行为。默认值为 1.0，增大数值会增加对应刚体在约束求解中的"重要性"。
+  在关节求解时，分别缩放连接刚体和自身刚体的逆质量与逆惯量。默认值均为 1，数值越大，对应刚体越容易受关节带动。
 
 ## 脚本使用
 

@@ -5,7 +5,7 @@ import { IDynamicCollider } from "./IDynamicCollider";
 import { IPhysicsMaterial, IPhysicsMaterialProperties } from "./IPhysicsMaterial";
 import { IPhysicsScene } from "./IPhysicsScene";
 import { IStaticCollider } from "./IStaticCollider";
-import { IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
+import { IConfigurableJoint, IFixedJoint, IHingeJoint, ISpringJoint } from "./joints";
 import {
   IBoxColliderShape,
   ICapsuleColliderShape,
@@ -127,6 +127,12 @@ export interface IPhysics {
    * @param collider - collider of joint
    */
   createHingeJoint(collider: ICollider): IHingeJoint;
+
+  /**
+   * Create a six-degree-of-freedom configurable joint.
+   * @param collider - Owner collider of the joint
+   */
+  createConfigurableJoint(collider: ICollider): IConfigurableJoint;
 
   /**
    * Create spring joint

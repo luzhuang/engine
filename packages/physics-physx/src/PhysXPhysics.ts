@@ -3,6 +3,7 @@ import {
   IBoxColliderShape,
   ICapsuleColliderShape,
   ICharacterController,
+  IConfigurableJoint,
   IDynamicCollider,
   IFixedJoint,
   IHingeJoint,
@@ -22,6 +23,7 @@ import { PhysXPhysicsMaterial } from "./PhysXPhysicsMaterial";
 import { PhysXPhysicsScene } from "./PhysXPhysicsScene";
 import { PhysXStaticCollider } from "./PhysXStaticCollider";
 import { PhysXRuntimeMode } from "./enum/PhysXRuntimeMode";
+import { PhysXConfigurableJoint } from "./joint/PhysXConfigurableJoint";
 import { PhysXFixedJoint } from "./joint/PhysXFixedJoint";
 import { PhysXHingeJoint } from "./joint/PhysXHingeJoint";
 import { PhysXSpringJoint } from "./joint/PhysXSpringJoint";
@@ -192,6 +194,13 @@ export class PhysXPhysics implements IPhysics {
    */
   createHingeJoint(collider: PhysXCollider): IHingeJoint {
     return new PhysXHingeJoint(this, collider);
+  }
+
+  /**
+   * {@inheritDoc IPhysics.createConfigurableJoint }
+   */
+  createConfigurableJoint(collider: PhysXCollider): IConfigurableJoint {
+    return new PhysXConfigurableJoint(this, collider);
   }
 
   /**

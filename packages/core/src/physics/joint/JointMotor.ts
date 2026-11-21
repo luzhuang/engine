@@ -2,7 +2,7 @@ import { DataObject } from "../../base/DataObject";
 import { UpdateFlagManager } from "../../UpdateFlagManager";
 
 /**
- * The JointMotor is used to motorize a joint.
+ * Velocity motor settings for a hinge.
  */
 export class JointMotor extends DataObject {
   /** @internal */
@@ -28,7 +28,7 @@ export class JointMotor extends DataObject {
   }
 
   /**
-   * The force limit.
+   * The maximum motor torque, in newton-metres.
    */
   get forceLimit(): number {
     return this._forceLimit;

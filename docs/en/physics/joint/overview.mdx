@@ -5,7 +5,7 @@ type: Physics
 label: Physics
 ---
 
-Joint components are used to simulate connections between Rigidbodies or between a Rigidbody and an arbitrary point in world space. By applying forces to restrict degrees of freedom, they achieve specific physical effects. Currently, Galacean supports three types of joint components:
+Joint components are used to simulate connections between Rigidbodies or between a Rigidbody and an arbitrary point in world space. By applying forces to restrict degrees of freedom, they achieve specific physical effects. Currently, Galacean supports four types of joint components:
 
 1. [Fixed Joint](/en/docs/physics/joint/fixedJoint)  
    A fixed joint completely restricts the relative motion between two Rigidbodies, maintaining their fixed relative position and orientation. This type of joint is particularly useful when you need separable objects or synchronized motion without a hierarchical structure.
@@ -22,7 +22,14 @@ Joint components are used to simulate connections between Rigidbodies or between
 
    <Image src="https://mdn.alipayobjects.com/huamei_3zduhr/afts/img/A*yZPrRohs-VcAAAAAAAAAAAAAesJ_AQ/original" />
 
+4. [Configurable Joint](/en/docs/physics/joint/configurableJoint)
+   Controls six degrees of freedom independently and can drive a relative pose or velocity.
+
 ## Basic Concepts
+
+For long joint chains, select TGS with `new Scene(engine, name, { solver: "tgs" })`. Raising
+`Rigidbody.solverIterations` on the connected bodies gives the solver more position iterations per step,
+which can reduce joint drift while the bodies continue to resolve contacts.
 
 All joint types share the following common characteristics:
 
@@ -42,9 +49,14 @@ All joint types share the following common characteristics:
 
    - `breakForce`: Maximum force the joint can withstand
    - `breakTorque`: Maximum torque the joint can withstand
+   - `isBroken`: Whether the current constraint broke
+   - `Script.onJointBreak(joint)`: Called on the joint’s entity after the physics step that broke the joint
+   - `getReactionForce(force, torque)`: Writes the last resolved force and torque into the supplied vectors
 
 4. **Physics Calculation Intervention**:
-   - `connectedMassScale` and `massScale`: Used to adjust the mass influence of the connected and own Rigidbodies
+   - `connectedMassScale` and `massScale` scale the inverse mass and inverse inertia of the connected body and this body during constraint solving.
+   - `enableCollision` allows the connected bodies to collide.
+   - `enablePreprocessing` runs the solver preprocessing pass before solving the constraint.
 
 ## Script Usage
 

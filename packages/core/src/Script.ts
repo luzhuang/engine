@@ -5,6 +5,7 @@ import { ignoreClone } from "./clone/CloneDecorators";
 import { PointerEventData } from "./input/pointer/PointerEventData";
 import { Collider } from "./physics";
 import { Collision } from "./physics/Collision";
+import type { Joint } from "./physics/joint/Joint";
 import { Rigidbody } from "./physics/Rigidbody";
 
 /**
@@ -124,6 +125,12 @@ export class Script extends Component {
    * @remarks The Collision data will be invalid after this call, you should copy the data if needed.
    */
   onCollisionStay(other: Collision): void {}
+
+  /**
+   * Called after a physics step when a Joint on this Entity breaks under force or torque.
+   * @param joint - The Joint that broke.
+   */
+  onJointBreak(joint: Joint): void {}
 
   /**
    * Called after a physics step when the Rigidbody on this Entity goes to sleep.

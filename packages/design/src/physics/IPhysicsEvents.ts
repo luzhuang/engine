@@ -33,6 +33,7 @@ export interface IPhysicsEvents {
   /** The number of valid records at the start of the contact event buffer. */
   contactEventCount: number;
   triggerEvents: ReadonlyArray<ITriggerEvent>;
+  brokenJointIds: ReadonlyArray<number>;
   /** Sleep and wake registration IDs. Negative values represent sleep and positive values represent wake. */
   bodySleepEventIds: ReadonlyArray<number>;
   /** The number of valid entries at the start of the sleep and wake buffer. */

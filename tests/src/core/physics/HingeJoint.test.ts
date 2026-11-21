@@ -105,7 +105,7 @@ describe("HingeJoint", function () {
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1 / 60);
     expect(formatValue(joint.velocity)).eq(6.89082);
-    expect(formatValue(joint.angle)).eq(6.58019);
+    expect(joint.angle).toBeCloseTo(MathUtil.degreeToRadian(6.58019), 5);
   });
 
   it("hardLimit", function () {
@@ -130,11 +130,43 @@ describe("HingeJoint", function () {
 
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.angle)).eq(1.57019);
+    expect(joint.angle).toBeCloseTo(Math.PI / 2, 2);
 
     collider2.applyTorque(new Vector3(0, -1000, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.angle)).eq(-1.57019);
+    expect(joint.angle).toBeCloseTo(-Math.PI / 2, 2);
+  });
+
+  it("reverses angular velocity at a bouncy hard limit", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    const [inelastic, elastic] = [0, 1].map((bounciness) => {
+      const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 3 * bounciness, 0));
+      const body = entity.getComponent(Rigidbody);
+      body.useGravity = false;
+      body.angularDamping = 0;
+
+      const hinge = entity.addComponent(HingeJoint);
+      const limits = new JointLimits();
+      limits.min = -0.5;
+      limits.max = 0.5;
+      hinge.limits = limits;
+      hinge.useLimits = true;
+      limits.bounciness = bounciness;
+      body.angularVelocity.set(10, 0, 0);
+      return body;
+    });
+
+    const fixedTimeStep = physics.fixedTimeStep;
+    physics.fixedTimeStep = 1 / 120;
+    try {
+      for (let i = 0; i < 12; i++) {
+        physics._update(physics.fixedTimeStep);
+      }
+      expect(inelastic.angularVelocity.x).toBeCloseTo(0);
+      expect(elastic.angularVelocity.x).toBeLessThan(-5);
+    } finally {
+      physics.fixedTimeStep = fixedTimeStep;
+    }
   });
 
   it("softLimit", function () {
@@ -154,10 +186,10 @@ describe("HingeJoint", function () {
     joint.anchor = new Vector3(0.5, 0, 0);
     joint.axis = new Vector3(0, 1, 0);
     joint.useLimits = true;
-    joint.useSpring = true;
+    joint.useSoftLimits = true;
     const limits = new JointLimits();
-    limits.min = -90;
-    limits.max = 90;
+    limits.min = MathUtil.degreeToRadian(-90);
+    limits.max = MathUtil.degreeToRadian(90);
     limits.stiffness = 1000;
     limits.damping = 30;
     joint.limits = limits;
@@ -166,7 +198,7 @@ describe("HingeJoint", function () {
 
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.angle)).eq(6.27762);
+    expect(joint.angle).toBeCloseTo(MathUtil.degreeToRadian(6.27762), 5);
   });
 
   it("stiffness", function () {
@@ -185,10 +217,10 @@ describe("HingeJoint", function () {
     joint.anchor = new Vector3(0.5, 0, 0);
     joint.axis = new Vector3(0, 1, 0);
     joint.useLimits = true;
-    joint.useSpring = true;
+    joint.useSoftLimits = true;
     const limits = new JointLimits();
-    limits.min = -90;
-    limits.max = 90;
+    limits.min = MathUtil.degreeToRadian(-90);
+    limits.max = MathUtil.degreeToRadian(90);
     limits.stiffness = 2000;
     limits.damping = 30;
     joint.limits = limits;
@@ -197,7 +229,7 @@ describe("HingeJoint", function () {
 
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.angle)).eq(-12.93617);
+    expect(joint.angle).toBeCloseTo(MathUtil.degreeToRadian(-12.93617), 5);
   });
 
   it("damping", function () {
@@ -216,10 +248,10 @@ describe("HingeJoint", function () {
     joint.anchor = new Vector3(0.5, 0, 0);
     joint.axis = new Vector3(0, 1, 0);
     joint.useLimits = true;
-    joint.useSpring = true;
+    joint.useSoftLimits = true;
     const limits = new JointLimits();
-    limits.min = -90;
-    limits.max = 90;
+    limits.min = MathUtil.degreeToRadian(-90);
+    limits.max = MathUtil.degreeToRadian(90);
     limits.stiffness = 1000;
     limits.damping = 100;
     joint.limits = limits;
@@ -228,7 +260,7 @@ describe("HingeJoint", function () {
 
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.angle)).eq(50.06221);
+    expect(joint.angle).toBeCloseTo(MathUtil.degreeToRadian(50.06221), 5);
   });
 
   it("motor", function () {
@@ -250,36 +282,32 @@ describe("HingeJoint", function () {
 
     engine.sceneManager.activeScene.physics._update(1);
     expect(formatValue(joint.velocity)).eq(30);
-    expect(formatValue(joint.angle)).eq(278.87335);
+    expect(joint.angle).toBeCloseTo(MathUtil.degreeToRadian(278.87335), 5);
   });
 
-  it("forceLimit", function () {
-    const boxEntity = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
-    const boxEntity2 = addBox(new Vector3(1, 1, 1), new Vector3(0.5, 5, 0));
-    const collider = boxEntity.getComponent(Rigidbody);
-    const collider2 = boxEntity2.getComponent(Rigidbody);
-    collider.automaticCenterOfMass = true;
-    collider2.automaticCenterOfMass = true;
-    collider.automaticInertiaTensor = true;
-    collider2.automaticInertiaTensor = true;
-    collider.isKinematic = true;
-    const joint = boxEntity.addComponent(HingeJoint);
-    joint.connectedBody = boxEntity2.getComponent(Rigidbody);
-    joint.anchor = new Vector3(0.5, 0, 0);
-    joint.axis = new Vector3(0, 1, 0);
-    joint.useMotor = true;
+  it.each([1 / 60, 1 / 120])("limits angular acceleration with a maximum torque at timestep %s", (dt) => {
+    const physics = engine.sceneManager.activeScene.physics;
+    const previousTimestep = physics.fixedTimeStep;
+    const box = addBox(new Vector3(1, 1, 1), new Vector3());
+    const body = box.getComponent(Rigidbody);
+    body.useGravity = false;
+    body.angularDamping = 0;
+    body.automaticInertiaTensor = false;
+    body.inertiaTensor.set(1, 1, 1);
+    const hinge = box.addComponent(HingeJoint);
     const motor = new JointMotor();
     motor.targetVelocity = 30;
-    motor.forceLimit = 0.01;
-    joint.motor = motor;
+    motor.forceLimit = 0.5;
+    hinge.motor = motor;
+    hinge.useMotor = true;
 
-    expect(formatValue(joint.velocity)).eq(0);
-
-    engine.sceneManager.activeScene.physics._update(1);
-    expect(formatValue(joint.velocity)).eq(3.51291);
-
-    engine.sceneManager.activeScene.physics._update(10);
-    expect(formatValue(joint.velocity)).eq(30);
+    physics.fixedTimeStep = dt;
+    try {
+      physics._update(dt);
+      expect(Math.abs(body.angularVelocity.x)).toBeCloseTo(motor.forceLimit * dt, 6);
+    } finally {
+      physics.fixedTimeStep = previousTimestep;
+    }
   });
 
   it("gearRatio", function () {
@@ -369,7 +397,7 @@ describe("HingeJoint", function () {
     expect(newJoint.limits).not.toBe(joint.limits);
     expect(newJoint.motor).not.toBe(joint.motor);
 
-    newJoint.limits.min = -Math.PI;
+    newJoint.limits.min = MathUtil.degreeToRadian(-Math.PI);
     expect(joint.limits.min).not.eq(newJoint.limits.min);
     newJoint.motor.targetVelocity = 50;
     expect(joint.motor.targetVelocity).not.eq(newJoint.motor.targetVelocity);
@@ -377,7 +405,7 @@ describe("HingeJoint", function () {
     collider2.applyTorque(new Vector3(0, 1000, 0));
     engine.sceneManager.activeScene.physics._update(1 / 60);
     expect(formatValue(newJoint.velocity)).eq(6.89082);
-    expect(formatValue(newJoint.angle)).eq(6.58019);
+    expect(newJoint.angle).toBeCloseTo(MathUtil.degreeToRadian(6.58019), 5);
   });
 
   it("applies changes to a cloned motor independently of the original motor", () => {
@@ -404,8 +432,8 @@ describe("HingeJoint", function () {
     const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
     const joint = entity.addComponent(HingeJoint);
     joint.limits = new JointLimits();
-    joint.limits.min = -20;
-    joint.limits.max = 20;
+    joint.limits.min = MathUtil.degreeToRadian(-20);
+    joint.limits.max = MathUtil.degreeToRadian(20);
     joint.useLimits = true;
     const clone = entity.clone();
     clone.transform.setPosition(3, 5, 0);
@@ -416,15 +444,15 @@ describe("HingeJoint", function () {
     const torque = new Vector3(1000, 0, 0);
     body.applyTorque(torque);
     physics._update(1);
-    expect(Math.abs(cloneJoint.angle)).toBeCloseTo(20, 1);
+    expect(Math.abs(cloneJoint.angle)).toBeCloseTo(MathUtil.degreeToRadian(20), 2);
 
-    cloneJoint.limits.min = -45;
-    cloneJoint.limits.max = 45;
+    cloneJoint.limits.min = MathUtil.degreeToRadian(-45);
+    cloneJoint.limits.max = MathUtil.degreeToRadian(45);
     body.applyTorque(torque);
     physics._update(1);
-    expect(Math.abs(cloneJoint.angle)).toBeCloseTo(45, 1);
-    expect(joint.limits.min).toBe(-20);
-    expect(joint.limits.max).toBe(20);
+    expect(Math.abs(cloneJoint.angle)).toBeCloseTo(Math.PI / 4, 2);
+    expect(joint.limits.min).toBe(MathUtil.degreeToRadian(-20));
+    expect(joint.limits.max).toBe(MathUtil.degreeToRadian(20));
   });
 
   it("applies motor settings configured while inactive when the Entity enters simulation", function () {
@@ -435,10 +463,10 @@ describe("HingeJoint", function () {
     hingeJoint.axis = new Vector3(0, 1, 0);
     hingeJoint.useLimits = true;
     hingeJoint.useMotor = true;
-    hingeJoint.useSpring = true;
+    hingeJoint.useSoftLimits = true;
     const limits = new JointLimits();
-    limits.min = -90;
-    limits.max = 90;
+    limits.min = MathUtil.degreeToRadian(-90);
+    limits.max = MathUtil.degreeToRadian(90);
     hingeJoint.limits = limits;
     const motor = new JointMotor();
     motor.targetVelocity = 1;
@@ -502,10 +530,10 @@ describe("HingeJoint", function () {
     expect(y / x).toBeCloseTo(axisX * 0.001, 4);
   });
 
-  it("computes default JointLimits contactDistance in radians for narrow degree ranges", function () {
+  it("computes default JointLimits contactDistance from the authored angular range", function () {
     const limits = new JointLimits();
-    limits.min = -4;
-    limits.max = 4;
+    limits.min = MathUtil.degreeToRadian(-4);
+    limits.max = MathUtil.degreeToRadian(4);
     expect(limits.contactDistance).toBeCloseTo(0.49 * MathUtil.degreeToRadian(8), 6);
 
     const box = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
@@ -514,7 +542,7 @@ describe("HingeJoint", function () {
     joint.useLimits = true;
     box.getComponent(Rigidbody).applyTorque(new Vector3(100, 0, 0));
     engine.sceneManager.activeScene.physics._update(1);
-    expect(Math.abs(joint.angle)).toBeLessThanOrEqual(4.5);
+    expect(Math.abs(joint.angle)).toBeLessThanOrEqual(MathUtil.degreeToRadian(4.5));
   });
 
   it("resets cached angle and velocity on a cloned HingeJoint before simulation", function () {
@@ -554,7 +582,7 @@ describe("HingeJoint", function () {
     expect(joint.limits).toBeNull();
     expect(() => {
       motor.targetVelocity = 5;
-      limits.max = 30;
+      limits.max = MathUtil.degreeToRadian(30);
     }).not.toThrow();
   });
 
@@ -592,19 +620,19 @@ describe("HingeJoint", function () {
     const limitBody = limitBox.getComponent(Rigidbody)!;
     const limitJoint = limitBox.addComponent(HingeJoint);
     const limits = new JointLimits();
-    limits.min = -10;
-    limits.max = 10;
+    limits.min = MathUtil.degreeToRadian(-10);
+    limits.max = MathUtil.degreeToRadian(10);
     limitJoint.limits = limits;
     limitJoint.useLimits = true;
     limitBody.applyTorque(new Vector3(50, 0, 0));
     engine.sceneManager.activeScene.physics._update(0.5);
-    expect(Math.abs(limitJoint.angle)).toBeLessThanOrEqual(11);
+    expect(Math.abs(limitJoint.angle)).toBeLessThanOrEqual(MathUtil.degreeToRadian(11));
 
     // Clearing limits to null while useLimits=true lets the body spin past the former limit
     limitJoint.limits = null;
     limitBody.applyTorque(new Vector3(80, 0, 0));
     engine.sceneManager.activeScene.physics._update(0.5);
-    expect(Math.abs(limitJoint.angle)).toBeGreaterThan(20);
+    expect(Math.abs(limitJoint.angle)).toBeGreaterThan(MathUtil.degreeToRadian(20));
   });
 
   it("wakes sleeping bodies when active HingeJoint constraint parameters change", function () {
@@ -632,18 +660,18 @@ describe("HingeJoint", function () {
     expect(body.isSleeping()).toBe(true);
 
     const limits = new JointLimits();
-    limits.min = 20;
-    limits.max = 40;
+    limits.min = MathUtil.degreeToRadian(20);
+    limits.max = MathUtil.degreeToRadian(40);
     joint.limits = limits;
     joint.useLimits = true;
     expect(body.isSleeping()).toBe(false);
 
     body.sleep();
-    limits.min = 25;
+    limits.min = MathUtil.degreeToRadian(25);
     expect(body.isSleeping()).toBe(false);
 
     body.sleep();
-    joint.useSpring = true;
+    joint.useSoftLimits = true;
     expect(body.isSleeping()).toBe(false);
 
     body.sleep();
