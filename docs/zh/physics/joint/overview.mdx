@@ -27,6 +27,9 @@ label: Physics
 
 ## 属性说明
 
+较长的关节链可通过 `new Scene(engine, name, { solver: "tgs" })` 启用 TGS。提高相连刚体的
+`Rigidbody.solverIterations` 会增加每步的位置迭代次数，帮助减少关节漂移，同时继续求解碰撞接触。
+
 所有关节类型都具有以下共同特征：
 
 1. **关节端点**：每个关节都包含两个作用对象：

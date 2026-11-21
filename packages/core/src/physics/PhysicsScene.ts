@@ -102,6 +102,7 @@ export class PhysicsScene {
   private _dirtyBodies: Rigidbody[] = [];
   private _dirtyColliders: Collider[] = [];
   private _massDirtyBodies: Rigidbody[] = [];
+  private _pendingSleeps?: Set<Rigidbody>;
   private _collision: Collision;
   private readonly _eventTargets = new Map<number, Joint | Rigidbody>();
   private _nextEventId = 0;
@@ -1260,6 +1261,11 @@ export class PhysicsScene {
       const { _nativePhysicsScene: nativePhysicsScene, _bodies: bodies } = this;
       this._syncColliders();
       if (scene.destroyed) return;
+      const pendingSleeps = this._pendingSleeps;
+      if (pendingSleeps?.size && scene._activeProcessCount === 0) {
+        for (const body of pendingSleeps) body._applyScheduledSleep();
+        pendingSleeps.clear();
+      }
       nativePhysicsScene.update(deltaTime);
       contactError = this._contactModification?._takeError();
       if (this._bodyOrderDirty && !bodies.isLopping) {
@@ -1295,8 +1301,9 @@ export class PhysicsScene {
    * @internal
    * Apply pending component changes to the native scene: Rigidbody poses first, then Collider ownership and poses
    * relative to them, and finally the mass properties that depend on the attached Colliders.
+   * @returns Whether the specified body's normal mass update was deferred.
    */
-  _syncColliders(): void {
+  _syncColliders(deferMassFor?: Rigidbody): boolean {
     Engine._assertOutsideContactModifier();
     const dirtyBodies = this._dirtyBodies;
     while (dirtyBodies.length) {
@@ -1311,11 +1318,14 @@ export class PhysicsScene {
       collider._sync();
     }
     const massDirtyBodies = this._massDirtyBodies;
+    let deferred = false;
     while (massDirtyBodies.length) {
       const body = massDirtyBodies.pop()!;
       body._massDirtyIndex = -1;
-      body._updateMass();
+      if (body === deferMassFor) deferred = true;
+      else body._updateMass();
     }
+    return deferred;
   }
 
   /**
@@ -1405,6 +1415,12 @@ export class PhysicsScene {
     massDirtyBodies.push(body);
   }
 
+  /** @internal Schedules or cancels sleep after activation and Collider synchronization. */
+  _scheduleSleep(body: Rigidbody, scheduled: boolean): void {
+    if (scheduled) (this._pendingSleeps ||= new Set()).add(body);
+    else this._pendingSleeps?.delete(body);
+  }
+
   /**
    * @internal
    */
@@ -1448,6 +1464,7 @@ export class PhysicsScene {
     PhysicsScene._raycastHitPool.length = 0;
     PhysicsScene._raycastSeenHits.clear();
     this._eventTargets.clear();
+    this._pendingSleeps?.clear();
     this._defaultMaterial?._addReferCount(-1);
     this._defaultMaterial = null;
     this._nativePhysicsScene?.destroy();

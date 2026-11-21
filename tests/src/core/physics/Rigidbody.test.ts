@@ -615,6 +615,157 @@ describe("Rigidbody", function () {
     expect(formatValue(box.transform.position.y)).lessThan(10);
   });
 
+  it("keeps the simulated mass when an assignment cannot be represented", () => {
+    const entity = addBox(new Vector3(1, 1, 1), true, new Vector3());
+    const body = entity.getComponent(Rigidbody)!;
+    body.useGravity = false;
+    body.mass = 2;
+    for (const invalid of [-1, NaN, Infinity, Number.MAX_VALUE, 1e-50]) {
+      expect(() => (body.mass = invalid)).toThrow(RangeError);
+      expect(body.mass).toBe(2);
+    }
+    body.applyImpulse(new Vector3(4, 0, 0));
+    engine.sceneManager.activeScene.physics._update(1 / 60);
+    expect(body.linearVelocity.x).toBeCloseTo(2);
+  });
+
+  it("preserves the latest automatic axes when setting an inertia tensor", () => {
+    function addAsymmetricBody(name: string) {
+      const entity = rootEntity.createChild(name);
+      const body = entity.addComponent(Rigidbody);
+      const shape = entity.addComponent(BoxCollider);
+      shape.size.set(2, 4, 6);
+      return { body, shape };
+    }
+    const reference = addAsymmetricBody("reference");
+    const target = addAsymmetricBody("target");
+    expect(target.body.inertiaTensorRotation.w).toBeCloseTo(1);
+    reference.shape.rotation.z = 30;
+    const expected = reference.body.inertiaTensorRotation;
+    target.shape.rotation.z = 30;
+    target.body.inertiaTensor = new Vector3(2, 3, 4);
+
+    const actual = target.body.inertiaTensorRotation;
+    const dot = actual.x * expected.x + actual.y * expected.y + actual.z * expected.z + actual.w * expected.w;
+    expect(Math.abs(dot)).toBeCloseTo(1, 5);
+    expect(target.body.automaticInertiaTensor).toBe(false);
+    expect(target.body.inertiaTensor).toMatchObject({ x: 2, y: 3, z: 4 });
+  });
+
+  it.each([false, true])("handles a sleep request before body registration with cancel=%s", (cancel) => {
+    const entity = new Entity(engine, "sleep on awake");
+    entity.transform.position.y = 5;
+    entity.addComponent(
+      class extends Script {
+        onAwake(): void {
+          this.entity.getComponent(Rigidbody)!.sleep();
+        }
+      }
+    );
+    const body = entity.addComponent(Rigidbody);
+    entity.addComponent(BoxCollider);
+    rootEntity.addChild(entity);
+    if (cancel) body.wakeUp();
+
+    engine.sceneManager.activeScene.physics._update(1 / 60);
+    expect(body.isSleeping()).toBe(!cancel);
+    expect(entity.transform.worldPosition.y < 5).toBe(cancel);
+  });
+
+  it("honors sleep requested before a world joint enters simulation", () => {
+    const entity = new Entity(engine, "sleep during joint registration");
+    entity.transform.position.y = 5;
+    const body = entity.addComponent(Rigidbody);
+    entity.addComponent(BoxCollider);
+    entity.addComponent(FixedJoint);
+    body.sleep();
+    rootEntity.addChild(entity);
+
+    engine.sceneManager.activeScene.physics._update(1 / 60);
+    expect(body.isSleeping()).toBe(true);
+  });
+
+  it.each([false, true])("cancels initial sleep only when an explosion reaches the body (%s)", (reachable) => {
+    const entity = new Entity(engine, "sleep before explosion");
+    const body = entity.addComponent(Rigidbody);
+    body.useGravity = false;
+    entity.addComponent(BoxCollider);
+    body.sleep();
+    rootEntity.addChild(entity);
+
+    body.applyExplosionForce(12, new Vector3(reachable ? -1 : -10, 0, 0), 2, 0, ForceMode.Impulse);
+    engine.sceneManager.activeScene.physics._update(1 / 60);
+    expect(body.isSleeping()).toBe(!reachable);
+    expect(body.linearVelocity.x > 0).toBe(reachable);
+  });
+
+  it.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false]
+  ])("sets mass from density and respects auto center=%s and auto inertia=%s", (autoCenter, autoInertia) => {
+    const entity = rootEntity.createChild("density");
+    const body = entity.addComponent(Rigidbody);
+    const shape = entity.addComponent(BoxCollider);
+    shape.size.set(2, 4, 6);
+    shape.center.set(1, 2, 3);
+    const manualCenter = new Vector3(-1, -2, -3);
+    const manualInertia = new Vector3(2, 3, 4);
+    const manualRotation = new Quaternion(0, 0, Math.SQRT1_2, Math.SQRT1_2);
+    if (!autoCenter) body.centerOfMass = manualCenter;
+    if (!autoInertia) {
+      body.inertiaTensor = manualInertia;
+      body.inertiaTensorRotation = manualRotation;
+    }
+
+    expect(body.setDensity(2)).toBe(true);
+    expect(body.mass).toBeCloseTo(96);
+    expect(Vector3.equals(body.centerOfMass, autoCenter ? shape.center : manualCenter)).toBe(true);
+    const inertia = body.inertiaTensor;
+    expect(inertia.x).toBeCloseTo(autoInertia ? 416 : 2);
+    expect(inertia.y).toBeCloseTo(autoInertia ? 320 : 3);
+    expect(inertia.z).toBeCloseTo(autoInertia ? 160 : 4);
+    expect(body.inertiaTensorRotation.w).toBeCloseTo(autoInertia ? 1 : Math.SQRT1_2);
+    shape.size.x = 3;
+    expect(body.inertiaTensor.y).toBeCloseTo(autoInertia ? 360 : 3);
+    expect(body.mass).toBeCloseTo(96);
+  });
+
+  it("preserves pending authored mass when the density computation cannot succeed", () => {
+    const entity = rootEntity.createChild("invalid density result");
+    const body = entity.addComponent(Rigidbody);
+    body.useGravity = false;
+    const shape = entity.addComponent(BoxCollider);
+    shape.size.set(2, 2, 2);
+    body.mass = 7;
+
+    expect(() => body.setDensity(0)).toThrow(RangeError);
+    expect(body.setDensity(2 ** 127)).toBe(false);
+    expect(body.mass).toBe(7);
+    body.applyImpulse(new Vector3(14, 0, 0));
+    engine.sceneManager.activeScene.physics._update(1 / 60);
+    expect(body.linearVelocity.x).toBeCloseTo(2);
+    shape.isTrigger = true;
+    expect(body.setDensity(2)).toBe(false);
+    expect(body.mass).toBe(7);
+  });
+
+  it("computes density and inertia for a Collider far from the Rigidbody origin", () => {
+    const entity = rootEntity.createChild("offset density");
+    const body = entity.addComponent(Rigidbody);
+    const shape = entity.addComponent(BoxCollider);
+    shape.size.set(1, 1, 1);
+    shape.center.x = 2048;
+
+    expect(body.setDensity(2)).toBe(true);
+    expect(body.mass).toBeCloseTo(2);
+    expect(body.centerOfMass.x).toBeCloseTo(2048);
+    expect(body.inertiaTensor.x).toBeCloseTo(1 / 3);
+    expect(body.inertiaTensor.y).toBeCloseTo(1 / 3);
+    expect(body.inertiaTensor.z).toBeCloseTo(1 / 3);
+  });
+
   it.each([
     [true, true, false],
     [true, false, false],

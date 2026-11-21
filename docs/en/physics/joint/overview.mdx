@@ -27,6 +27,10 @@ Joint components are used to simulate connections between Rigidbodies or between
 
 ## Basic Concepts
 
+For long joint chains, select TGS with `new Scene(engine, name, { solver: "tgs" })`. Raising
+`Rigidbody.solverIterations` on the connected bodies gives the solver more position iterations per step,
+which can reduce joint drift while the bodies continue to resolve contacts.
+
 All joint types share the following common characteristics:
 
 1. **Joint Endpoints**: Each joint involves two acting objects:

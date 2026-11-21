@@ -28,7 +28,7 @@ label: Physics
 
 | 属性 | 描述 | 默认值 |
 | --- | --- | --- |
-| [**mass**](/apis/core/#Rigidbody-mass) | 刚体的质量，质量越大物体运动状态越难改变 | 1.0 |
+| [**mass**](/apis/core/#Rigidbody-mass) | 刚体的质量，0 表示无限质量 | 1.0 |
 | [**useGravity**](/apis/core/#Rigidbody-useGravity) | 是否受重力影响 | true |
 | [**simulationEnabled**](/apis/core/#Rigidbody-simulationEnabled) | 是否参与模拟。关闭后保留碰撞器的查询设置，位置和旋转跟随实体 Transform | true |
 | [**isKinematic**](/apis/core/#Rigidbody-isKinematic) | 是否为运动学刚体。物理不会移动运动学刚体，但它可以推动其他物体 | false |
@@ -64,6 +64,8 @@ label: Physics
 | [**automaticInertiaTensor**](/apis/core/#Rigidbody-automaticInertiaTensor) | 是否根据所拥有的碰撞器和质量自动计算惯性张量 | true |
 
 设置 `centerOfMass` 会关闭质心的自动计算。设置 `inertiaTensor` 或 `inertiaTensorRotation` 会关闭两项惯性属性的自动计算，同时保留另一项的当前值。将对应开关设为 `true` 即可恢复自动计算。
+
+刚体进入活动物理场景后，可调用 `setDensity(density)`，根据所挂载的实体碰撞体体积计算质量。没有可用体积时返回 `false`。后续修改几何会保留算出的质量。如需按新体积重算，请再次调用此方法。
 
 ### 性能优化设置
 

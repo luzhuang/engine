@@ -15,7 +15,7 @@ While both the Character Controller and a [Rigidbody](/en/docs/physics/collider/
 |---------|---------------------|------------------|
 | Movement Method | Direct displacement control via `move()` method | Movement through forces or velocity |
 | Collision Response | Manual collision response, automatic step and slope handling | Physics-based collision response |
-| Gravity Handling | Requires manual gravity implementation | Automatic scene gravity application |
+| Gravity Handling | `simpleMove()` applies gravity. `move()` uses the supplied displacement. | Automatic scene gravity application |
 | Shape | Inline capsule or box, selected by `geometry` | Any Collider components on its Entity and children |
 | Use Cases | Character control, first/third-person games | Physics simulation, rigid body motion |
 
@@ -83,6 +83,7 @@ Call `scene.physics.computeCharacterControllerInteractions()` once before moving
 | Method | Description |
 |--------|-------------|
 | [**move**](/apis/core/#CharacterController-move) | Move the character controller and write the result to the Entity's world position immediately. Returns a collision flag value indicating collision status, or 0 when the controller is not in a scene.<ul><li>displacement: Movement vector</li><li>minDist: Remaining distance at which the sweep stops, defaults to 0</li><li>elapsedTime: Seconds since the previous move, defaults to the scene's fixed timestep</li></ul> |
+| [**simpleMove(speed, elapsedTime?)**](/apis/core/#CharacterController-simpleMove) | Move at the given world-space speed perpendicular to `upDirection`, applying gravity along that axis. Returns whether this move touched the ground. The elapsed time defaults to the scene's fixed timestep. |
 | [**getFootPosition(out)**](/apis/core/#CharacterController-getFootPosition) | Write the world position of the foot, including the contact offset. |
 | [**setFootPosition(position)**](/apis/core/#CharacterController-setFootPosition) | Teleport the controller so its foot is at the given world position. |
 | [**resize(height)**](/apis/core/#CharacterController-resize) | Set the local total height while keeping the foot in place. Check for clearance before growing the controller. |

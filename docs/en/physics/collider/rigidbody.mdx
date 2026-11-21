@@ -28,7 +28,7 @@ A Rigidbody ([Rigidbody](/apis/core/#Rigidbody)) puts its Entity under physics c
 
 | Property | Description | Default |
 | --- | --- | --- |
-| [**mass**](/apis/core/#Rigidbody-mass) | Mass of the Rigidbody. The larger the mass, the harder it is to change the object's motion | 1.0 |
+| [**mass**](/apis/core/#Rigidbody-mass) | Mass of the Rigidbody. Zero represents infinite mass. | 1.0 |
 | [**useGravity**](/apis/core/#Rigidbody-useGravity) | Whether gravity affects the Rigidbody | true |
 | [**simulationEnabled**](/apis/core/#Rigidbody-simulationEnabled) | Whether the Rigidbody participates in simulation. Query-only bodies retain their Collider query settings and follow the Entity Transform. | true |
 | [**isKinematic**](/apis/core/#Rigidbody-isKinematic) | Whether the Rigidbody is kinematic. Physics does not move a kinematic body, but it can push other objects | false |
@@ -64,6 +64,8 @@ Enable `interpolation` on a moving Rigidbody when you can see the gap between ph
 | [**automaticInertiaTensor**](/apis/core/#Rigidbody-automaticInertiaTensor) | Whether the inertia tensor is calculated from the attached Colliders and mass | true |
 
 Assigning `centerOfMass` disables automatic center-of-mass calculation. Assigning `inertiaTensor` or `inertiaTensorRotation` disables automatic calculation of both inertia properties and preserves the other value. Set the corresponding automatic flag to `true` to resume calculation.
+
+Call `setDensity(density)` after the Rigidbody enters an active physics scene to derive its mass from attached solid Colliders. The call returns `false` if there is no usable volume. Later geometry changes keep the resulting mass. Call `setDensity` again to recalculate it from volume.
 
 ### Performance
 

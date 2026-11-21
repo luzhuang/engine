@@ -112,6 +112,40 @@ describe("CharacterController", () => {
     expect(capsule.maxJumpHeight).toBe(0);
   });
 
+  it("simpleMove projects speed and gravity onto the controller axes and reports grounding", () => {
+    const gravity = physics.gravity.clone();
+    const timestep = physics.fixedTimeStep;
+    try {
+      physics.gravity.set(-8, 50, 0);
+      physics.fixedTimeStep = 0.25;
+      role.transform.setPosition(0, 3, 0);
+      controller.upDirection.set(1, 0, 0);
+      addBox(new Vector3(1, 10, 10), new Vector3(-2.5, 4, 0));
+      const speed = new Vector3(100, 2, -1);
+      const velocity = new Vector3();
+
+      expect(controller.simpleMove(speed)).toBe(false);
+      expect(role.transform.worldPosition.x).toBeCloseTo(-0.5);
+      expect(role.transform.worldPosition.y).toBeCloseTo(3.5);
+      expect(role.transform.worldPosition.z).toBeCloseTo(-0.25);
+      expect(controller.getVelocity(velocity).x).toBeCloseTo(-2);
+
+      expect(controller.simpleMove(speed, 0.125)).toBe(false);
+      expect(role.transform.worldPosition.x).toBeCloseTo(-0.875);
+      expect(controller.getVelocity(velocity).x).toBeCloseTo(-3);
+
+      expect(controller.simpleMove(speed, 0.5)).toBe(true);
+      expect(controller.isGrounded).toBe(true);
+      expect(speed).toEqual(new Vector3(100, 2, -1));
+
+      controller.enabled = false;
+      expect(controller.simpleMove(speed)).toBe(false);
+    } finally {
+      physics.gravity.copyFrom(gravity);
+      physics.fixedTimeStep = timestep;
+    }
+  });
+
   it.each([CharacterControllerGeometry.Box, CharacterControllerGeometry.Capsule])(
     "resizes at a fixed foot position and teleports by the foot in world space (geometry=%s)",
     (geometry) => {
@@ -509,6 +543,31 @@ describe("CharacterController", () => {
     expect(role.transform.worldPosition.z).toBeCloseTo(-2);
     expect(role.transform.worldRotationQuaternion.w).toBe(1);
     expect(controller.isGrounded).toBe(true);
+  });
+
+  it("simpleMove stays grounded when a rising platform stops", () => {
+    const platform = addBox(new Vector3(8, 1, 8), new Vector3(0, 4, 0));
+    const body = platform.entity.addComponent(Rigidbody);
+    body.isKinematic = true;
+    controller.geometry = CharacterControllerGeometry.Capsule;
+    controller.stepOffset = 0;
+    role.transform.setPosition(2, 5.54, 0);
+    physics.autoSimulation = false;
+    const speed = new Vector3();
+
+    physics.step();
+    controller.move(new Vector3(0, -0.05, 0));
+    expect(controller.isGrounded).toBe(true);
+
+    body.move(new Vector3(0, 4.5, 0));
+    physics.step();
+    expect(controller.simpleMove(speed)).toBe(true);
+    expect(role.transform.worldPosition.y).toBeCloseTo(6.02);
+    expect(controller.getVelocity(new Vector3()).y).toBeGreaterThan(0);
+
+    physics.step();
+    expect(controller.simpleMove(speed)).toBe(true);
+    expect(role.transform.worldPosition.y).toBeCloseTo(6.02);
   });
 
   it("follows a moving platform through a wall excluded for one move", () => {

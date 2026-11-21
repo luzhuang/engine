@@ -15,7 +15,7 @@ label: Physics
 |------|------------|------------|
 | 移动方式 | 通过 `move()` 方法直接控制位移 | 通过施加力或设置速度来移动 |
 | 碰撞响应 | 手动处理碰撞响应，自动处理台阶和斜坡 | 基于物理模拟的碰撞响应 |
-| 重力处理 | 需要手动实现重力效果 | 自动应用场景重力 |
+| 重力处理 | `simpleMove()` 应用场景重力，`move()` 使用传入的位移 | 自动应用场景重力 |
 | 形状 | 内置的胶囊体或盒，由 `geometry` 选择 | 所在实体及子实体上的任意碰撞器组件 |
 | 适用场景 | 角色控制、第一/第三人称游戏 | 物理模拟、刚体运动 |
 
@@ -83,6 +83,7 @@ label: Physics
 | 方法名 | 描述 |
 | ---- | ---- |
 | [**move**](/apis/core/#CharacterController-move) | 移动角色控制器，并立即把结果写入实体的世界坐标。返回一个碰撞标志值，标识碰撞状态；控制器不在场景中时返回 0。<ul><li>displacement：移动向量</li><li>minDist：结束扫掠的剩余距离，默认 0</li><li>elapsedTime：距上次移动的秒数，默认使用场景的固定步长</li></ul> |
+| [**simpleMove(speed, elapsedTime?)**](/apis/core/#CharacterController-simpleMove) | 以给定世界速度在垂直于 `upDirection` 的平面移动，并沿该轴应用重力。返回本次移动是否接地。省略时长时使用场景的固定步长。 |
 | [**getFootPosition(out)**](/apis/core/#CharacterController-getFootPosition) | 写出包含接触偏移的脚底世界坐标。 |
 | [**setFootPosition(position)**](/apis/core/#CharacterController-setFootPosition) | 瞬移控制器，让脚底到达指定的世界坐标。 |
 | [**resize(height)**](/apis/core/#CharacterController-resize) | 设置局部空间中的总高，保持脚底位置不动。调高前应先检查头顶空间。 |

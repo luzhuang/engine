@@ -125,6 +125,11 @@ export class PhysXDynamicCollider extends PhysXCollider implements IDynamicColli
     this._pxActor.setMassAndUpdateInertia(mass);
   }
 
+  /** {@inheritDoc IDynamicCollider.setDensity } */
+  setDensity(density: number, automaticCenterOfMass: boolean, automaticInertiaTensor: boolean): number {
+    return this._pxActor.setDensity(density, automaticCenterOfMass, automaticInertiaTensor);
+  }
+
   /** {@inheritDoc IDynamicCollider.setMaxLinearVelocity} */
   setMaxLinearVelocity(value: number): void {
     this._pxActor.setMaxLinearVelocity(value);
@@ -256,8 +261,8 @@ export class PhysXDynamicCollider extends PhysXCollider implements IDynamicColli
   }
 
   /** {@inheritDoc IDynamicCollider.addExplosionForce } */
-  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): void {
-    this._pxActor.addExplosionForce(
+  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): boolean {
+    return this._pxActor.addExplosionForce(
       strength,
       origin,
       radius,

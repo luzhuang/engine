@@ -348,14 +348,14 @@ export class CharacterController extends Collider {
   }
 
   /**
-   * The contact directions from the most recent {@link move}.
+   * The contact directions from the most recent {@link move} or {@link simpleMove}.
    */
   get collisionFlags(): ControllerCollisionFlag {
     return this._collisionFlags;
   }
 
   /**
-   * Whether the most recent {@link move} contacted the ground.
+   * Whether the most recent {@link move} or {@link simpleMove} contacted the ground.
    */
   get isGrounded(): boolean {
     return (this._collisionFlags & ControllerCollisionFlag.Down) !== 0;
@@ -378,7 +378,7 @@ export class CharacterController extends Collider {
   }
 
   /**
-   * Writes the world-space velocity from the most recent {@link move}, in world units per second.
+   * Writes the world-space velocity from the most recent {@link move} or {@link simpleMove}, in world units per second.
    * @param out - Receives zero if the duration was zero or the controller is detached.
    * @returns The output vector.
    */
@@ -449,8 +449,6 @@ export class CharacterController extends Collider {
     const excluded = filter?.exclude;
     const count = excluded?.length ?? 0;
     const excludedIds = count > 0 ? (CharacterController._moveExclusionLists.pop() ?? []) : undefined;
-    let hits: ControllerMoveHitBatch | undefined;
-    let displacement: Vector3 | undefined;
     try {
       if (excludedIds) {
         excludedIds.length = count;
@@ -458,25 +456,41 @@ export class CharacterController extends Collider {
       }
       const controller = this._getSyncedNative();
       if (!controller) return ControllerCollisionFlag.None;
-      const scene = this._registeredScene!;
-      elapsedTime ??= scene.physics.fixedTimeStep;
-      hits = this._borrowMoveHitBatch();
-      displacement = CharacterController._movePositions.pop() ?? new Vector3();
-      if (this._nativeState === ControllerNativeState.Rebased) {
-        // The rebased hierarchy can recover precision lost in the old world frame.
-        controller.getWorldPosition(this._nativePosition);
-        this._nativeState = ControllerNativeState.Attached;
-      }
-      const flags = controller.move(displacement.set(x, y, z), minDist, elapsedTime, hits, layerMask, excludedIds);
-      this._collisionFlags = flags;
-      this._writeBackPosition(controller, elapsedTime, displacement);
-      if (hits?.count) this._dispatchMoveHits(hits, scene);
-      return flags;
+      elapsedTime ??= this._registeredScene!.physics.fixedTimeStep;
+      return this._move(controller, x, y, z, minDist, elapsedTime, layerMask, excludedIds);
     } finally {
-      if (displacement) CharacterController._movePositions.push(displacement);
       if (excludedIds) CharacterController._moveExclusionLists.push(excludedIds);
-      if (hits) CharacterController._moveHitBatches.push(hits);
     }
+  }
+
+  /**
+   * Moves the controller at the given speed while applying scene gravity along {@link upDirection}.
+   * @remarks Airborne vertical motion continues from the resolved velocity of the previous move.
+   * @param speed - World-space velocity in world units per second, projected perpendicular to {@link upDirection}.
+   * @param elapsedTime - Time since the previous move, in seconds. Defaults to the scene's fixed timestep.
+   * @returns Whether the controller contacted the ground during this move.
+   */
+  simpleMove(speed: Vector3, elapsedTime?: number): boolean {
+    const { x, y, z } = speed;
+    const controller = this._getSyncedNative();
+    if (!controller) return false;
+
+    const physics = this._registeredScene!.physics;
+    const duration = elapsedTime ?? physics.fixedTimeStep;
+    const up = this._upDirection;
+    const { x: upX, y: upY, z: upZ } = up;
+    const inputVerticalSpeed = x * upX + y * upY + z * upZ;
+    const previousVerticalSpeed = this.isGrounded ? 0 : Vector3.dot(this._velocity, up);
+    const verticalSpeedDelta = previousVerticalSpeed + Vector3.dot(physics.gravity, up) * duration - inputVerticalSpeed;
+    const flags = this._move(
+      controller,
+      (x + upX * verticalSpeedDelta) * duration,
+      (y + upY * verticalSpeedDelta) * duration,
+      (z + upZ * verticalSpeedDelta) * duration,
+      0,
+      duration
+    );
+    return (flags & ControllerCollisionFlag.Down) !== 0;
   }
 
   /**
@@ -615,6 +629,36 @@ export class CharacterController extends Collider {
   private _getSyncedNative(): ICharacterController | null {
     this._registeredScene?.physics._syncColliders();
     return this._nativeState === ControllerNativeState.Detached ? null : <ICharacterController>this._native;
+  }
+
+  private _move(
+    controller: ICharacterController,
+    x: number,
+    y: number,
+    z: number,
+    minDist: number,
+    elapsedTime: number,
+    layerMask?: number,
+    excludedIds?: number[]
+  ): ControllerCollisionFlag {
+    const scene = this._registeredScene!;
+    const hits = this._borrowMoveHitBatch();
+    const displacement = CharacterController._movePositions.pop() ?? new Vector3();
+    try {
+      if (this._nativeState === ControllerNativeState.Rebased) {
+        // The rebased hierarchy can recover precision lost in the old world frame.
+        controller.getWorldPosition(this._nativePosition);
+        this._nativeState = ControllerNativeState.Attached;
+      }
+      const flags = controller.move(displacement.set(x, y, z), minDist, elapsedTime, hits, layerMask, excludedIds);
+      this._collisionFlags = flags;
+      this._writeBackPosition(controller, elapsedTime, displacement);
+      if (hits?.count) this._dispatchMoveHits(hits, scene);
+      return flags;
+    } finally {
+      CharacterController._movePositions.push(displacement);
+      if (hits) CharacterController._moveHitBatches.push(hits);
+    }
   }
 
   private _borrowMoveHitBatch(): ControllerMoveHitBatch | undefined {

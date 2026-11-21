@@ -400,6 +400,18 @@ describe("Joint", function () {
     expect(body2.angularVelocity.x).toBeCloseTo(share, 4);
   });
 
+  it.each(["breakForce", "breakTorque"] as const)("retains %s after rejecting an invalid threshold", (property) => {
+    const joint = rootEntity.createChild("joint").addComponent(FixedJoint);
+    expect(joint[property]).toBe(Infinity);
+    joint[property] = 4;
+    for (const value of [-1, -Infinity, NaN]) {
+      expect(() => (joint[property] = value)).toThrow(RangeError);
+      expect(joint[property]).toBe(4);
+    }
+    joint[property] = Number.MAX_VALUE;
+    expect(joint[property]).toBe(Number.MAX_VALUE);
+  });
+
   it("breakForce", function () {
     engine.sceneManager.activeScene.physics.gravity = new Vector3(0, -1, 0);
     const box1 = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));

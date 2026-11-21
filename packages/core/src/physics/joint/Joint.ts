@@ -62,7 +62,7 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
       preBody?._detachJoint(this);
       value?.entity._updateFlagManager.addListener(this._onConnectedTransformChanged);
       value?._attachJoint(this);
-      if (this._nativeJoint) Joint._wakeBody(preBody);
+      if (this._nativeJoint) preBody?._wakeNative();
       this._connectedBody = value;
       this._syncActiveJoint();
     }
@@ -202,7 +202,10 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   }
 
   /**
-   * The maximum force the joint can apply before breaking.
+   * The force threshold for breaking the joint, in newtons.
+   * @remarks PhysX caps thresholds above its finite range at its maximum value.
+   * @defaultValue Infinity
+   * @throws RangeError if the threshold is not a nonnegative number.
    */
   get breakForce(): number {
     return this._force;
@@ -210,13 +213,17 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
 
   set breakForce(value: number) {
     if (value !== this._force) {
+      Joint._validateBreakThreshold(value, "breakForce");
       this._force = value;
       this._nativeJoint?.setBreakForce(value);
     }
   }
 
   /**
-   * The maximum torque the joint can apply before breaking.
+   * The torque threshold for breaking the joint, in newton-metres.
+   * @remarks PhysX caps thresholds above its finite range at its maximum value.
+   * @defaultValue Infinity
+   * @throws RangeError if the threshold is not a nonnegative number.
    */
   get breakTorque(): number {
     return this._torque;
@@ -224,6 +231,7 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
 
   set breakTorque(value: number) {
     if (value !== this._torque) {
+      Joint._validateBreakThreshold(value, "breakTorque");
       this._torque = value;
       this._nativeJoint?.setBreakTorque(value);
     }
@@ -472,16 +480,16 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
   }
 
   protected _wakeBodies(): void {
-    Joint._wakeBody(this.entity.getComponent(Rigidbody));
+    this.entity.getComponent(Rigidbody)?._wakeNative();
     const body = this._connectedBody;
-    if (body?.scene === this.scene) Joint._wakeBody(body);
+    if (body && body.scene === this.scene) body._wakeNative();
   }
 
   /** @internal Wake the other endpoint after the constraint enters or leaves simulation. */
   _wakeOtherBody(body: Rigidbody): void {
     if (this._nativeJoint && !this._nativeJoint.isBroken()) {
       const connectedBody = this._connectedBody;
-      Joint._wakeBody(body === connectedBody ? this.entity.getComponent(Rigidbody) : connectedBody);
+      (body === connectedBody ? this.entity.getComponent(Rigidbody) : connectedBody)?._wakeNative();
     }
   }
 
@@ -503,9 +511,9 @@ export abstract class Joint extends Component implements ICloneHook<Joint> {
     }
   }
 
-  private static _wakeBody(body: Rigidbody | null | undefined): void {
-    if (body && !body.destroyed && body._index !== -1 && !body.isKinematic) {
-      body.wakeUp();
+  private static _validateBreakThreshold(value: number, property: "breakForce" | "breakTorque"): void {
+    if (!(typeof value === "number" && value >= 0)) {
+      throw new RangeError(`${property} must be a nonnegative number.`);
     }
   }
 }

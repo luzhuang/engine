@@ -53,7 +53,9 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   @ignoreClone
   private _sleepEventId = 0;
   @ignoreClone
-  private _massChanged = false;
+  private _sleepPending = false;
+  @ignoreClone
+  private _massChanges = MassChanges.None;
   @ignoreClone
   private _nativeActor: IDynamicCollider | null = null;
   @ignoreClone
@@ -171,22 +173,51 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   /**
    * The mass of the Rigidbody. PhysX treats zero as infinite mass.
+   * @throws When the value is neither zero nor a positive normal Float32.
    */
   get mass(): number {
     return this._mass;
   }
 
   set mass(value: number) {
+    if (typeof value !== "number" || (value !== 0 && !Collider._isValidPositiveFloat32(value))) {
+      throw new RangeError("Rigidbody mass must be zero or a positive, normal, finite Float32.");
+    }
     if (this._mass !== value) {
       this._mass = value;
       if (this._registeredScene) {
-        this._massChanged = true;
-        this._markMassDirty();
+        this._markMassDirty(MassChanges.Mass);
       } else {
         this._nativeActor?.setMass(value);
-        this._massChanged = false;
+        this._massChanges &= ~MassChanges.Mass;
       }
     }
+  }
+
+  /**
+   * Sets mass from the volume of the currently attached solid Colliders.
+   * @param density - Mass per cubic world unit. Must be a positive normal Float32.
+   * @returns Whether the registered body produced valid mass properties and accepted the mass.
+   * @remarks Recomputes automatic mass properties and preserves manual center of mass and inertia.
+   * Missing or unsupported volume leaves mass unchanged. Later geometry edits keep the resulting mass.
+   * @throws When density is not a positive normal Float32.
+   */
+  setDensity(density: number): boolean {
+    if (typeof density !== "number" || !Collider._isValidPositiveFloat32(density)) {
+      throw new RangeError("Rigidbody density must be a positive, normal, finite Float32.");
+    }
+    const scene = this._registeredScene;
+    if (!scene || this._index === -1) return false;
+    const pendingMass = scene.physics._syncColliders(this);
+    if (this._registeredScene !== scene || this._index === -1) return false;
+    const mass = this._nativeActor!.setDensity(density, this._automaticCenterOfMass, this._automaticInertiaTensor);
+    if (mass === 0) {
+      if (pendingMass) this._markMassDirty(MassChanges.None);
+      return false;
+    }
+    this._mass = mass;
+    this._massChanges = MassChanges.None;
+    return true;
   }
 
   /**
@@ -443,6 +474,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   set simulationEnabled(value: boolean) {
     if (this._simulationEnabled !== value) {
       this._simulationEnabled = value;
+      if (!value) this._cancelPendingSleep();
       this._nativeActor?.setSimulationEnabled(value);
       this._resetInterpolation();
       this._syncSleepEventRegistration();
@@ -465,7 +497,9 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   set isKinematic(value: boolean) {
     if (this._isKinematic !== value) {
       this._isKinematic = value;
-      if (!value) {
+      if (value) {
+        this._cancelPendingSleep();
+      } else {
         // Detach attached native kinematic-only shapes before clearing eKINEMATIC on the actor
         const colliders = this._attachedColliders;
         for (let i = colliders.length - 1; i >= 0; i--) {
@@ -564,14 +598,14 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    */
   applyForce(force: Vector3, mode: ForceMode = ForceMode.Force): void {
     // The current mass properties convert the force, so pending Collider changes are applied first
-    this._phasedActiveInScene && this._getSyncedActor()?.addForce(force, mode);
+    this._getForceActor()?.addForce(force, mode);
   }
 
   /**
    * Applies a world-space force at a world-space position.
    */
   applyForceAtPosition(force: Vector3, position: Vector3): void {
-    this._phasedActiveInScene && this._getSyncedActor()!.addForceAtPosition(force, position);
+    this._getForceActor()?.addForceAtPosition(force, position);
   }
 
   /**
@@ -585,7 +619,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * Applies a world-space impulse at a world-space position on the next physics step.
    */
   applyImpulseAtPosition(impulse: Vector3, position: Vector3): void {
-    this._phasedActiveInScene && this._getSyncedActor()?.addImpulseAtPosition(impulse, position);
+    this._getForceActor()?.addImpulseAtPosition(impulse, position);
   }
 
   /**
@@ -594,7 +628,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @param mode - How the value changes angular velocity.
    */
   applyTorque(torque: Vector3, mode: ForceMode = ForceMode.Force): void {
-    this._phasedActiveInScene && this._getSyncedActor()?.addTorque(torque, mode);
+    this._getForceActor()?.addTorque(torque, mode);
   }
 
   /**
@@ -603,7 +637,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @param mode - How the value changes velocity. Defaults to `ForceMode.Force`.
    */
   applyRelativeForce(force: Vector3, mode: ForceMode = ForceMode.Force): void {
-    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeForce(force, mode);
+    this._getForceActor()?.addRelativeForce(force, mode);
   }
 
   /**
@@ -612,7 +646,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @param mode - How the value changes angular velocity. Defaults to `ForceMode.Force`.
    */
   applyRelativeTorque(torque: Vector3, mode: ForceMode = ForceMode.Force): void {
-    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeTorque(torque, mode);
+    this._getForceActor()?.addRelativeTorque(torque, mode);
   }
 
   /**
@@ -628,7 +662,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     mode: ForceMode.Force | ForceMode.Impulse = ForceMode.Force
   ): void {
     const impulse = Rigidbody._isPositionImpulse(mode);
-    this._phasedActiveInScene && this._getSyncedActor()?.addForceAtLocalPosition(force, position, impulse);
+    this._getForceActor()?.addForceAtLocalPosition(force, position, impulse);
   }
 
   /**
@@ -644,7 +678,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     mode: ForceMode.Force | ForceMode.Impulse = ForceMode.Force
   ): void {
     const impulse = Rigidbody._isPositionImpulse(mode);
-    this._phasedActiveInScene && this._getSyncedActor()?.addRelativeForceAtLocalPosition(force, position, impulse);
+    this._getForceActor()?.addRelativeForceAtLocalPosition(force, position, impulse);
   }
 
   /**
@@ -665,8 +699,9 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     upwardOffset = 0,
     mode: ForceMode = ForceMode.Force
   ): void {
-    this._phasedActiveInScene &&
-      this._getSyncedActor()?.addExplosionForce(strength, origin, radius, upwardOffset, mode);
+    if (this._index !== -1 && this._getSyncedActor()?.addExplosionForce(strength, origin, radius, upwardOffset, mode)) {
+      this._cancelPendingSleep();
+    }
   }
 
   /**
@@ -696,10 +731,20 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   }
 
   /**
-   * Puts an active dynamic body to sleep.
+   * Puts a simulated dynamic body to sleep.
+   * @remarks A request before or during activation applies before the first step after activation.
    */
   sleep(): void {
-    if (this._index !== -1 && !this._isKinematic) this._nativeActor!.sleep();
+    if (this._isKinematic || !this._simulationEnabled) return;
+    const scene = this._registeredScene;
+    if (!scene || this._index === -1 || scene._activeProcessCount > 0) {
+      this._sleepPending = true;
+      if (this._index !== -1) scene?.physics._scheduleSleep(this, true);
+    } else {
+      this._cancelPendingSleep();
+      const actor = this._getSyncedActor();
+      if (this._index !== -1) actor!.sleep();
+    }
   }
 
   /**
@@ -710,10 +755,18 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
   }
 
   /**
-   * Wakes an active dynamic body.
+   * Wakes a simulated dynamic body and cancels a pending sleep request.
    */
   wakeUp(): void {
-    if (this._index !== -1 && !this._isKinematic) this._nativeActor!.wakeUp();
+    this._cancelPendingSleep();
+    this._wakeNative();
+  }
+
+  /** @internal Wakes the native actor while preserving an explicit sleep request for activation. */
+  _wakeNative(): void {
+    if (this._index !== -1 && !this.destroyed && !this._isKinematic && this._simulationEnabled) {
+      this._nativeActor!.wakeUp();
+    }
   }
 
   /**
@@ -747,6 +800,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     const actor = this._getNativeActor();
     if (this._registeredScene !== scene || this._index !== -1) return;
     scene.physics._addRigidbody(this, actor);
+    if (this._sleepPending) scene.physics._scheduleSleep(this, true);
     this._syncSleepEventRegistration();
     this._syncJoints();
     this._markCollidersDirty();
@@ -757,6 +811,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    */
   override _onDisableInScene(scene: Scene): void {
     this._resetInterpolation();
+    if (this._sleepPending) scene.physics._scheduleSleep(this, false);
     this._setSleepEventRegistration(scene, false);
     this._syncJoints();
     const colliders = this._attachedColliders;
@@ -906,10 +961,11 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * @internal
    * Recompute automatic mass properties before the next simulation step or query.
    */
-  _markMassDirty(): void {
+  _markMassDirty(changes = MassChanges.Geometry): void {
+    this._massChanges |= changes;
     if (
       this._massDirtyIndex === -1 &&
-      (this._automaticCenterOfMass || this._automaticInertiaTensor || this._massChanged)
+      (this._automaticCenterOfMass || this._automaticInertiaTensor || this._massChanges & MassChanges.Mass)
     ) {
       this._registeredScene?.physics._queueMassUpdate(this);
     }
@@ -1023,8 +1079,8 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
    * Commit an authored mass change and recompute automatic properties when attached geometry has volume.
    */
   _updateMass(): void {
-    const massChanged = this._massChanged;
-    this._massChanged = false;
+    const changes = this._massChanges;
+    this._massChanges = MassChanges.None;
     const actor = this._nativeActor;
     if (!actor) return;
     const mass = this._mass;
@@ -1045,7 +1101,7 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
         return;
       }
     }
-    if (massChanged) actor.setMass(mass);
+    if (changes & MassChanges.Mass) actor.setMass(mass);
   }
 
   protected override _onDestroy(): void {
@@ -1118,6 +1174,25 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
     return this._nativeActor;
   }
 
+  private _getForceActor(): IDynamicCollider | null {
+    if (this._index === -1 || this._isKinematic || !this._simulationEnabled) return null;
+    this._cancelPendingSleep();
+    return this._getSyncedActor();
+  }
+
+  /** @internal Consumes a sleep request after the scene has synchronized all Collider edits. */
+  _applyScheduledSleep(): void {
+    this._sleepPending = false;
+    this._nativeActor!.sleep();
+  }
+
+  private _cancelPendingSleep(): void {
+    if (this._sleepPending) {
+      this._sleepPending = false;
+      this._registeredScene?.physics._scheduleSleep(this, false);
+    }
+  }
+
   @ignoreClone
   private _onTransformChanged(): void {
     this._registeredScene?.physics._markBodyDirty(this);
@@ -1125,12 +1200,18 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   @ignoreClone
   private _setLinearVelocity(): void {
-    if (!this._isKinematic) this._nativeActor?.setLinearVelocity(this._linearVelocity);
+    if (!this._isKinematic && this._simulationEnabled) {
+      this._cancelPendingSleep();
+      this._nativeActor?.setLinearVelocity(this._linearVelocity);
+    }
   }
 
   @ignoreClone
   private _setAngularVelocity(): void {
-    if (!this._isKinematic) this._nativeActor?.setAngularVelocity(this._angularVelocity);
+    if (!this._isKinematic && this._simulationEnabled) {
+      this._cancelPendingSleep();
+      this._nativeActor?.setAngularVelocity(this._angularVelocity);
+    }
   }
 
   @ignoreClone
@@ -1141,11 +1222,23 @@ export class Rigidbody extends Component implements ICloneHook<Rigidbody> {
 
   @ignoreClone
   private _handleInertiaTensorChanged(): void {
-    const actor = this._nativeActor;
-    if (this._automaticInertiaTensor && actor) actor.getInertiaTensorRotation(this._inertiaTensorRotation);
+    if (this._automaticInertiaTensor) {
+      if (this._registeredScene?.physics._syncColliders(this)) {
+        // Changing mass alone does not change the principal axes.
+        if (this._massChanges & MassChanges.Geometry) this._updateMass();
+        else this._markMassDirty(MassChanges.None);
+      }
+      this._nativeActor?.getInertiaTensorRotation(this._inertiaTensorRotation);
+    }
     this._automaticInertiaTensor = false;
-    actor?.setInertiaTensor(this._inertiaTensor);
+    this._nativeActor?.setInertiaTensor(this._inertiaTensor);
   }
+}
+
+const enum MassChanges {
+  None = 0,
+  Mass = 1,
+  Geometry = 2
 }
 
 /** How a force or torque changes a body's velocity. */

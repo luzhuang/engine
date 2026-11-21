@@ -109,6 +109,9 @@ export interface IDynamicCollider extends ICollider {
    */
   setMassAndUpdateInertia(mass: number): void;
 
+  /** Applies mass derived from solid volume. Returns the new mass or zero when no properties were changed. */
+  setDensity(density: number, automaticCenterOfMass: boolean, automaticInertiaTensor: boolean): number;
+
   /** Sets the actor's maximum linear speed in world units per second before solving. */
   setMaxLinearVelocity(value: number): void;
 
@@ -200,8 +203,11 @@ export interface IDynamicCollider extends ICollider {
   /** Applies a body-local force or impulse at an unscaled point relative to the body origin. */
   addRelativeForceAtLocalPosition(force: Vector3, position: Vector3, impulse: boolean): void;
 
-  /** Applies a radial force with linear falloff at the nearest surface point, or at the center of mass. */
-  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): void;
+  /**
+   * Applies a radial force with linear falloff at the nearest surface point, or at the center of mass.
+   * @returns Whether the force was applied.
+   */
+  addExplosionForce(strength: number, origin: Vector3, radius: number, upwardOffset: number, mode: number): boolean;
 
   /**
    * Set a world-space target pose for the next simulation step.
