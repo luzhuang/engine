@@ -15,7 +15,7 @@ label: Physics
 |------|------------|------------|
 | 移动方式 | 通过 `move()` 方法直接控制位移 | 通过施加力或设置速度来移动 |
 | 碰撞响应 | 手动处理碰撞响应，自动处理台阶和斜坡 | 基于物理模拟的碰撞响应 |
-| 重力处理 | 需要手动实现重力效果 | 自动应用场景重力 |
+| 重力处理 | `simpleMove()` 应用场景重力，`move()` 使用传入的位移 | 自动应用场景重力 |
 | 形状 | 内置的胶囊体或盒，由 `geometry` 选择 | 所在实体及子实体上的任意碰撞器组件 |
 | 适用场景 | 角色控制、第一/第三人称游戏 | 物理模拟、刚体运动 |
 
@@ -46,7 +46,7 @@ label: Physics
 | ---- | ---- | ------ |
 | [**geometry**](/apis/core/#CharacterController-geometry) | `CharacterControllerGeometry.Capsule`（沿 `upDirection` 的胶囊体）或 `CharacterControllerGeometry.Box`（轴对齐的盒） | Capsule |
 | [**radius**](/apis/core/#CharacterController-radius) | 胶囊体在实体局部空间中的半径 | 0.5 |
-| [**height**](/apis/core/#CharacterController-height) | 胶囊总高度，包含两端半球 | 2 |
+| [**height**](/apis/core/#CharacterController-height) | 胶囊总高度，包含两端半球。缩放后的高度必须大于缩放后的直径。 | 2 |
 | [**size**](/apis/core/#CharacterController-size) | 盒在实体局部空间中的尺寸 | (1, 1, 1) |
 | [**center**](/apis/core/#Collider-center) | 几何形状在实体局部空间中的中心 | (0, 0, 0) |
 
@@ -63,16 +63,40 @@ label: Physics
 ### 特有属性
 | 属性 | 描述 | 默认值 |
 | ---- | ---- | ------ |
-| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。若超过控制器沿 `upDirection` 缩放后的高度，PhysX 将暂停该控制器的模拟和查询。有限负值会限制为 0。 | 0.5 |
+| [**detectCollisions**](/apis/core/#CharacterController-detectCollisions) | 是否阻挡撞向本控制器的刚体和其他角色控制器。设为 `false` 也会关闭触发器交互。本控制器调用 `move()` 时仍检测障碍，查询可见性仍由 `isSceneQuery` 控制。 | true |
+| [**stepOffset**](/apis/core/#CharacterController-stepOffset) | 请求的台阶高度，使用世界单位。PhysX 将实际跨越高度限制在控制器缩放后的高度以内，属性保留请求值。有限负值会限制为 0。 | 0.5 |
+| [**climbingMode**](/apis/core/#CharacterController-climbingMode) | 胶囊的跨台阶方式。`Easy` 允许胶囊依靠弧面跨上高于 `stepOffset` 的台阶，`Constrained` 限制这一行为。 | Constrained |
 | [**slopeLimit**](/apis/core/#CharacterController-slopeLimit) | 角色可以行走的最大斜坡角度（度）。<ul><li>超过此角度的斜面将被视为不可行走的墙壁</li><li>影响角色的爬坡能力</li></ul> | 45° |
+| [**invisibleWallHeight**](/apis/core/#CharacterController-invisibleWallHeight) | 不可行走的网格和地形三角形周围的隐形墙高度，使用世界单位。0 表示关闭隐形墙。 | 0 |
+| [**maxJumpHeight**](/apis/core/#CharacterController-maxJumpHeight) | 启用隐形墙时沿角色上方向的反向扩展的搜索距离，使用世界单位。可设为足以覆盖角色跳跃高度的距离。 | 0 |
 | [**nonWalkableMode**](/apis/core/#CharacterController-nonWalkableMode) | 定义如何处理不可行走的表面。<ul><li>PreventClimbing：阻止角色攀爬不可行走的斜坡，但不会强制其他移动（默认）</li><li>PreventClimbingAndForceSliding：阻止角色攀爬不可行走的斜坡，并强制角色沿斜坡滑下</li></ul> | PreventClimbing |
 | [**upDirection**](/apis/core/#CharacterController-upDirection) | 定义角色的向上方向。默认为 (0, 1, 0)，即世界空间的 Y 轴向上。影响移动和碰撞检测的方向判定 | (0, 1, 0) |
+
+## 场景移动设置
+
+`scene.physics.characterControllerPreciseSweeps` 默认开启精确扫掠。将 `scene.physics.characterControllerSlideOnCeiling` 设为 `false`，向上跳到倾斜天花板时会停止沿斜面滑移。
+
+移动彼此重叠的控制器前，调用一次 `scene.physics.computeCharacterControllerInteractions()`。该方法按场景碰撞规则计算分离量，各控制器在下一次 `move()` 时应用各自的分离量。
 
 ## 公开方法
 
 | 方法名 | 描述 |
 | ---- | ---- |
-| [**move**](/apis/core/#CharacterController-move) | 移动角色控制器，并立即把结果写入实体的世界坐标。返回一个碰撞标志值，标识碰撞状态；控制器不在场景中时返回 0。<ul><li>displacement：移动向量</li><li>minDist：最小移动距离</li><li>elapsedTime：经过的时间</li></ul> |
+| [**move**](/apis/core/#CharacterController-move) | 移动角色控制器，并立即把结果写入实体的世界坐标。返回一个碰撞标志值，标识碰撞状态；控制器不在场景中时返回 0。<ul><li>displacement：移动向量</li><li>minDist：结束扫掠的剩余距离，默认 0</li><li>elapsedTime：距上次移动的秒数，默认使用场景的固定步长</li></ul> |
+| [**simpleMove(speed, elapsedTime?)**](/apis/core/#CharacterController-simpleMove) | 以给定世界速度在垂直于 `upDirection` 的平面移动，并沿该轴应用重力。返回本次移动是否接地。省略时长时使用场景的固定步长。 |
+| [**getFootPosition(out)**](/apis/core/#CharacterController-getFootPosition) | 写出包含接触偏移的脚底世界坐标。 |
+| [**setFootPosition(position)**](/apis/core/#CharacterController-setFootPosition) | 瞬移控制器，让脚底到达指定的世界坐标。 |
+| [**resize(height)**](/apis/core/#CharacterController-resize) | 设置局部空间中的总高，保持脚底位置不动。调高前应先检查头顶空间。 |
+
+通过 `isGrounded` 或 `collisionFlags` 读取上次移动的接触状态，通过 `getVelocity(out)` 获取其实际世界速度。场景查询同帧可见新位置。
+
+在第四个参数传入 `ControllerMoveFilter` 可以限制本次移动的碰撞范围。`layerMask` 选择碰撞层，`exclude` 排除指定碰撞体，也可以排除其他角色控制器。场景碰撞矩阵和逐对忽略规则仍然生效。
+
+在移动实体的脚本中实现 `onControllerColliderHit(hit)`，即可收到控制器扫掠产生的接触。回调在实体坐标写入后、`move` 返回前执行，一次移动可能产生多次回调。数据包括命中的碰撞体、世界坐标下的接触点和法线，以及本次扫掠区段的方向和长度。需要跨回调使用时请复制。
+
+实现推动逻辑时，可以用接触数据向 `hit.collider.attachedRigidbody` 施加力或冲量。站在移动平台上时，`move` 会随支撑点的平移和旋转更新位置，实体朝向保持不变。
+
+场景的 `physics.characterControllerOverlapRecovery` 默认为 `true`，让控制器在移动时尝试脱离与静态碰撞体的重叠。
 
 角色控制器不支持 `getClosestPoint`，调用时返回 -1。
 
@@ -110,21 +134,36 @@ controller.upDirection = new Vector3(0, 1, 0); // 设置向上方向
 ### 使用移动函数
 ```typescript
 class CharacterMovement extends Script {
-  private _velocity = new Vector3();
-  
-  onUpdate(deltaTime: number) {
-    const controller = this.entity.getComponent(CharacterController);
+  private _controller: CharacterController;
+  private readonly _displacement = new Vector3();
+  private _verticalSpeed = 0;
+  private _jumpRequested = false;
 
-    // 创建位移向量
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
+  onAwake() {
+    this._controller = this.entity.getComponent(CharacterController);
+  }
 
-    // 帧时长以秒传入。将最小移动距离设为 0，避免过滤小幅移动。
-    const collisionFlags = controller.move(displacement, 0, deltaTime);
-    
-    // 处理碰撞响应
-    if (collisionFlags & ControllerCollisionFlag.Down) {
-      // 角色接触地面
+  onUpdate() {
+    this._jumpRequested ||= this.engine.inputManager.isKeyDown(Keys.Space);
+  }
+
+  onPhysicsUpdate(dt: number) {
+    const input = this.engine.inputManager;
+    const physics = this.scene.physics;
+    const x = Number(input.isKeyHeldDown(Keys.KeyD)) - Number(input.isKeyHeldDown(Keys.KeyA));
+    const z = Number(input.isKeyHeldDown(Keys.KeyW)) - Number(input.isKeyHeldDown(Keys.KeyS));
+    const displacement = this._displacement.set(x, 0, z).normalize().scale(5 * dt);
+
+    if (this._jumpRequested && this._controller.isGrounded) {
+      this._verticalSpeed = 5;
+    }
+    this._jumpRequested = false;
+    this._verticalSpeed += physics.gravity.y * dt;
+    displacement.y = this._verticalSpeed * dt;
+
+    const contacts = this._controller.move(displacement, 0, dt);
+    if (contacts & (ControllerCollisionFlag.Down | ControllerCollisionFlag.Up)) {
+      this._verticalSpeed = 0;
     }
   }
 }
@@ -175,64 +214,6 @@ controller.nonWalkableMode = ControllerNonWalkableMode.PreventClimbingAndForceSl
 // 调整 stepOffset 来控制可跨越的台阶高度
 controller.stepOffset = 0.3; // 较低的台阶
 controller.stepOffset = 0.5; // 较高的台阶
-```
-
-### 重力处理
-
-角色控制器本身不包含重力处理，需要在脚本中手动实现重力效果。以下是一个完整的重力处理示例：
-
-```typescript
-class CharacterMovement extends Script {
-  private _controller: CharacterController;
-  private _velocity = new Vector3();
-  private _isGrounded = false;
-  private _moveSpeed = 5;
-  private _jumpForce = 5;
-  private _gravity: Vector3;
-
-  onAwake() {
-    this._controller = this.entity.getComponent(CharacterController);
-    this._gravity = this.scene.physics.gravity;
-  }
-
-  onUpdate(deltaTime: number) {
-    const inputManager = this.engine.inputManager;
-
-    // 获取输入
-    const horizontal = inputManager.isKeyHeldDown(Keys.KeyA) ? -1 : inputManager.isKeyHeldDown(Keys.KeyD) ? 1 : 0;
-    const vertical = inputManager.isKeyHeldDown(Keys.KeyS) ? -1 : inputManager.isKeyHeldDown(Keys.KeyW) ? 1 : 0;
-    const jump = inputManager.isKeyDown(Keys.Space);
-    // 计算移动方向
-    const moveDirection = new Vector3(horizontal, 0, vertical);
-    moveDirection.normalize();
-
-    // 应用移动速度
-    this._velocity.x = moveDirection.x * this._moveSpeed;
-    this._velocity.z = moveDirection.z * this._moveSpeed;
-
-    // 应用重力
-    if (!this._isGrounded) {
-      this._velocity.y += this._gravity.y * deltaTime;
-    }
-
-    // 处理跳跃
-    if (this._isGrounded && jump) {
-      this._velocity.y = this._jumpForce;
-      this._isGrounded = false;
-    }
-
-    // 执行移动
-    const displacement = new Vector3();
-    Vector3.scale(this._velocity, deltaTime, displacement);
-    const collisionFlags = this._controller.move(displacement, 0, deltaTime);
-
-    // 更新地面状态
-    this._isGrounded = (collisionFlags & ControllerCollisionFlag.Down) !== 0;
-    if (this._isGrounded) {
-      this._velocity.y = 0;
-    }
-  }
-}
 ```
 
 ## 限制和注意事项

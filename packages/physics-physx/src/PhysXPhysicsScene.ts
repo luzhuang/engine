@@ -25,6 +25,9 @@ export class PhysXPhysicsScene implements IPhysicsScene {
   /** @internal */
   _pxControllerManager: any = null;
 
+  private _characterControllerOverlapRecovery = true;
+  private _characterControllerPreciseSweeps = true;
+  private _characterControllerSlideOnCeiling = true;
   private _boxGeometry: any = null;
   private _sphereGeometry: any = null;
   private _capsuleGeometry: any = null;
@@ -117,6 +120,36 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     this._pxSceneQueries = new physX.PxSceneQueries(this._pxScene);
   }
 
+  /** {@inheritDoc IPhysicsScene.characterControllerOverlapRecovery } */
+  get characterControllerOverlapRecovery(): boolean {
+    return this._characterControllerOverlapRecovery;
+  }
+
+  set characterControllerOverlapRecovery(value: boolean) {
+    this._characterControllerOverlapRecovery = value;
+    this._pxControllerManager?.setOverlapRecoveryModule(value);
+  }
+
+  /** {@inheritDoc IPhysicsScene.characterControllerPreciseSweeps } */
+  get characterControllerPreciseSweeps(): boolean {
+    return this._characterControllerPreciseSweeps;
+  }
+
+  set characterControllerPreciseSweeps(value: boolean) {
+    this._characterControllerPreciseSweeps = value;
+    this._pxControllerManager?.setPreciseSweeps(value);
+  }
+
+  /** {@inheritDoc IPhysicsScene.characterControllerSlideOnCeiling } */
+  get characterControllerSlideOnCeiling(): boolean {
+    return this._characterControllerSlideOnCeiling;
+  }
+
+  set characterControllerSlideOnCeiling(value: boolean) {
+    this._characterControllerSlideOnCeiling = value;
+    this._pxControllerManager?.setPreventVerticalSlidingAgainstCeiling(!value);
+  }
+
   /**
    * {@inheritDoc IPhysicsScene.setGravity }
    */
@@ -153,6 +186,11 @@ export class PhysXPhysicsScene implements IPhysicsScene {
    */
   addCharacterController(characterController: PhysXCharacterController): void {
     characterController._addToScene(this);
+  }
+
+  /** {@inheritDoc IPhysicsScene.computeCharacterControllerInteractions } */
+  computeCharacterControllerInteractions(elapsedTime: number): void {
+    this._pxControllerManager?.computeInteractions(elapsedTime);
   }
 
   /**
@@ -436,6 +474,11 @@ export class PhysXPhysicsScene implements IPhysicsScene {
     let pxControllerManager = this._pxControllerManager;
     if (pxControllerManager === null) {
       this._pxControllerManager = pxControllerManager = this._pxScene.createControllerManager();
+      pxControllerManager.setOverlapRecoveryModule(this._characterControllerOverlapRecovery);
+      if (!this._characterControllerPreciseSweeps) pxControllerManager.setPreciseSweeps(false);
+      if (!this._characterControllerSlideOnCeiling) {
+        pxControllerManager.setPreventVerticalSlidingAgainstCeiling(true);
+      }
     }
     return pxControllerManager;
   }

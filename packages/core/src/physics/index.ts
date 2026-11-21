@@ -1,6 +1,7 @@
 export { BoxCollider } from "./BoxCollider";
 export { CapsuleCollider } from "./CapsuleCollider";
 export { CharacterController } from "./CharacterController";
+export type { ControllerColliderHit, ControllerMoveFilter } from "./CharacterController";
 export { Collider } from "./Collider";
 export { Collision } from "./Collision";
 export { ContactPoint } from "./ContactPoint";

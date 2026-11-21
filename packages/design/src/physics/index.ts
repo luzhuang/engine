@@ -1,4 +1,4 @@
-export type { ICharacterController } from "./ICharacterController";
+export type { ICharacterController, IControllerMoveHit, IControllerMoveHits } from "./ICharacterController";
 export type { ICollider } from "./ICollider";
 export type { IDynamicCollider } from "./IDynamicCollider";
 export type { IPhysics } from "./IPhysics";

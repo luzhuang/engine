@@ -93,6 +93,58 @@ export class PhysicsScene {
   }
 
   /**
+   * Whether character controllers recover from overlaps with static colliders during movement.
+   * @defaultValue true
+   */
+  get characterControllerOverlapRecovery(): boolean {
+    return this._nativePhysicsScene.characterControllerOverlapRecovery;
+  }
+
+  set characterControllerOverlapRecovery(value: boolean) {
+    this._nativePhysicsScene.characterControllerOverlapRecovery = value;
+  }
+
+  /**
+   * Whether character controllers use precise sweeps during movement.
+   * @defaultValue true
+   */
+  get characterControllerPreciseSweeps(): boolean {
+    return this._nativePhysicsScene.characterControllerPreciseSweeps;
+  }
+
+  set characterControllerPreciseSweeps(value: boolean) {
+    this._nativePhysicsScene.characterControllerPreciseSweeps = value;
+  }
+
+  /**
+   * Whether upward character-controller movement can slide along a sloped ceiling.
+   * @defaultValue true
+   */
+  get characterControllerSlideOnCeiling(): boolean {
+    return this._nativePhysicsScene.characterControllerSlideOnCeiling;
+  }
+
+  set characterControllerSlideOnCeiling(value: boolean) {
+    this._nativePhysicsScene.characterControllerSlideOnCeiling = value;
+  }
+
+  /**
+   * Computes separation for overlapping character controllers that can collide with each other.
+   * @remarks Call once before moving the controllers. Each controller applies the result on its next
+   * `move()`. Calling again replaces any pending separation using the current poses and collision rules.
+   * Move-specific filters apply to the sweep.
+   * @param elapsedTime - Seconds since the last computation. Defaults to the fixed timestep. Zero clears pending separation.
+   * @throws When elapsedTime is negative or non-finite in Float32.
+   */
+  computeCharacterControllerInteractions(elapsedTime = this._fixedTimeStep): void {
+    if (!(typeof elapsedTime === "number" && elapsedTime >= 0 && Number.isFinite(Math.fround(elapsedTime)))) {
+      throw new RangeError("Character controller interaction time must be nonnegative and finite.");
+    }
+    this._syncColliders();
+    this._nativePhysicsScene?.computeCharacterControllerInteractions(elapsedTime);
+  }
+
+  /**
    * Get whether two colliders can collide with each other.
    * @param layer1 - The first collision layer
    * @param layer2 - The second collision layer

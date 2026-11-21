@@ -1,13 +1,48 @@
-import { ICharacterController } from "@galacean/engine-design";
+import { ICharacterController, IControllerMoveHit, IControllerMoveHits } from "@galacean/engine-design";
 import { MathUtil, Vector3 } from "@galacean/engine-math";
 import { ignoreClone } from "../clone/CloneDecorators";
 import { Engine } from "../Engine";
 import { Entity } from "../Entity";
+import type { Layer } from "../Layer";
+import type { Scene } from "../Scene";
+import type { Script } from "../Script";
 import { Collider } from "./Collider";
 import { CharacterControllerGeometry } from "./enums/CharacterControllerGeometry";
+import { ControllerClimbingMode } from "./enums/ControllerClimbingMode";
+import { ControllerCollisionFlag } from "./enums/ControllerCollisionFlag";
 import { ControllerNonWalkableMode } from "./enums/ControllerNonWalkableMode";
 import type { PhysicsScene } from "./PhysicsScene";
 import { Rigidbody } from "./Rigidbody";
+
+/** Narrows the scene's collision rules for one character controller move. */
+export interface ControllerMoveFilter {
+  /** Collision layers to test. Defaults to all layers. */
+  layerMask?: Layer;
+  /** Colliders to ignore during this move, including other character controllers. */
+  exclude?: readonly Collider[];
+}
+
+/** Borrowed contact data reported by a character controller's move. */
+export interface ControllerColliderHit {
+  /** The moving controller. */
+  readonly controller: CharacterController;
+  /** The collider hit by the sweep. */
+  readonly collider: Collider;
+  /** The contact point in world space. */
+  readonly point: Readonly<Vector3>;
+  /** The outward contact normal in world space. */
+  readonly normal: Readonly<Vector3>;
+  /** The world-space direction of the sweep segment that produced this hit. */
+  readonly moveDirection: Readonly<Vector3>;
+  /** The length of that sweep segment in world units. */
+  readonly moveLength: number;
+}
+
+const enum ControllerNativeState {
+  Detached,
+  Attached,
+  Rebased
+}
 
 /**
  * A capsule or box that moves and slides along obstacles through {@link move}.
@@ -16,25 +51,44 @@ import { Rigidbody } from "./Rigidbody";
  */
 export class CharacterController extends Collider {
   private static readonly _movePositions: Vector3[] = [];
+  private static readonly _moveHitBatches: ControllerMoveHitBatch[] = [];
+  private static readonly _moveExclusionLists: number[][] = [];
+  private static readonly _scriptIndexSetter = (script: Script, index: number): void => {
+    script._entityScriptsIndex = index;
+  };
   private static _tempWorldScale = new Vector3();
   private static _tempExtents = new Vector3();
+
+  private static _validateSlopeWallDistance(value: number, property: string): void {
+    if (typeof value !== "number" || !(value >= 0 && Number.isFinite(Math.fround(value)))) {
+      throw new RangeError(`CharacterController ${property} must be a nonnegative finite Float32.`);
+    }
+  }
 
   private _geometry = CharacterControllerGeometry.Capsule;
   private _radius = 0.5;
   private _height = 2;
   @ignoreClone
   private _size: Vector3;
+  private _detectCollisions = true;
   private _stepOffset = 0.5;
+  private _climbingMode = ControllerClimbingMode.Constrained;
   private _nonWalkableMode: ControllerNonWalkableMode = ControllerNonWalkableMode.PreventClimbing;
   private _upDirection = new Vector3(0, 1, 0);
   @ignoreClone
   private _lastValidUpDirection?: Vector3;
   private _slopeLimit = 45;
+  private _invisibleWallHeight = 0;
+  private _maxJumpHeight = 0;
 
   @ignoreClone
-  private _inScene = false;
+  private _nativeState = ControllerNativeState.Detached;
   @ignoreClone
   private _syncedCenter = new Vector3();
+  @ignoreClone
+  private _collisionFlags: ControllerCollisionFlag = ControllerCollisionFlag.None;
+  @ignoreClone
+  private _velocity = new Vector3();
 
   /**
    * The geometry type of the controller.
@@ -74,7 +128,8 @@ export class CharacterController extends Collider {
   /**
    * The total capsule height in local units, including both caps. Finite negative values are clamped to 0.
    * @defaultValue 2
-   * @remarks A height at or below twice the radius excludes the capsule from simulation and queries.
+   * @remarks World scale along the Entity's local Y axis scales the total height. The larger scale across
+   * local X and Z scales the radius. The scaled height must exceed the scaled diameter for the controller to move.
    * @throws When the value is not finite.
    */
   get height(): number {
@@ -132,10 +187,26 @@ export class CharacterController extends Collider {
   }
 
   /**
+   * Whether other rigidbodies and character controllers can collide with this controller.
+   * @defaultValue true
+   * @remarks Disabling incoming collisions also disables trigger interactions. The controller's own
+   * {@link move} still detects collisions, and {@link Collider.isSceneQuery} controls query visibility independently.
+   */
+  get detectCollisions(): boolean {
+    return this._detectCollisions;
+  }
+
+  set detectCollisions(value: boolean) {
+    if (this._detectCollisions !== value) {
+      this._detectCollisions = value;
+      (<ICharacterController>this._native)?.setDetectCollisions(value);
+    }
+  }
+
+  /**
    * The step height used when climbing obstacles, in world units. Finite negative values are clamped to 0.
    * @defaultValue 0.5
-   * @remarks PhysX excludes the controller from simulation and queries when the step height rounds to a non-finite
-   * value or exceeds the scaled height along {@link upDirection}.
+   * @remarks PhysX limits the effective step to the scaled controller height. The property retains the requested value.
    * @throws When the value is non-finite.
    */
   get stepOffset(): number {
@@ -150,6 +221,25 @@ export class CharacterController extends Collider {
     if (this._stepOffset !== value) {
       this._stepOffset = value;
       this._setGeometryDirty();
+    }
+  }
+
+  /**
+   * How capsule geometry steps over obstacles.
+   * @defaultValue `ControllerClimbingMode.Constrained`
+   * @remarks Box geometry ignores this setting.
+   */
+  get climbingMode(): ControllerClimbingMode {
+    return this._climbingMode;
+  }
+
+  set climbingMode(value: ControllerClimbingMode) {
+    if (value !== ControllerClimbingMode.Easy && value !== ControllerClimbingMode.Constrained) {
+      throw new Error("CharacterController climbingMode must be Easy or Constrained.");
+    }
+    if (this._climbingMode !== value) {
+      this._climbingMode = value;
+      (<ICharacterController>this._native)?.setClimbingMode(value);
     }
   }
 
@@ -208,6 +298,56 @@ export class CharacterController extends Collider {
   }
 
   /**
+   * The height of invisible walls around non-walkable mesh and heightfield triangles, in world units.
+   * @defaultValue 0
+   * @remarks A height of zero disables wall generation.
+   * @throws When the value is negative or non-finite as a Float32.
+   */
+  get invisibleWallHeight(): number {
+    return this._invisibleWallHeight;
+  }
+
+  set invisibleWallHeight(value: number) {
+    CharacterController._validateSlopeWallDistance(value, "invisibleWallHeight");
+    if (this._invisibleWallHeight !== value) {
+      this._invisibleWallHeight = value;
+      (<ICharacterController>this._native)?.setSlopeWalls(value, this._maxJumpHeight);
+    }
+  }
+
+  /**
+   * The extra downward search distance for non-walkable triangles while jumping, in world units.
+   * @defaultValue 0
+   * @remarks Extends the sweep search along the direction opposite {@link upDirection} when {@link invisibleWallHeight} is positive.
+   * @throws When the value is negative or non-finite as a Float32.
+   */
+  get maxJumpHeight(): number {
+    return this._maxJumpHeight;
+  }
+
+  set maxJumpHeight(value: number) {
+    CharacterController._validateSlopeWallDistance(value, "maxJumpHeight");
+    if (this._maxJumpHeight !== value) {
+      this._maxJumpHeight = value;
+      (<ICharacterController>this._native)?.setSlopeWalls(this._invisibleWallHeight, value);
+    }
+  }
+
+  /**
+   * The contact directions from the most recent {@link move} or {@link simpleMove}.
+   */
+  get collisionFlags(): ControllerCollisionFlag {
+    return this._collisionFlags;
+  }
+
+  /**
+   * Whether the most recent {@link move} or {@link simpleMove} contacted the ground.
+   */
+  get isGrounded(): boolean {
+    return (this._collisionFlags & ControllerCollisionFlag.Down) !== 0;
+  }
+
+  /**
    * @internal
    */
   constructor(entity: Entity) {
@@ -224,38 +364,119 @@ export class CharacterController extends Collider {
   }
 
   /**
-   * Moves the controller and immediately updates the Entity's world position.
-   * @remarks With PhysX, scene queries see the moved shape after the next simulation step. Trigger callbacks are
-   * dispatched by simulation steps. For immediate query updates, set the Entity's world position directly.
-   * @param disp - Requested displacement in world space.
-   * @param minDist - Stop sweeping when the remaining displacement reaches this distance or less, in world units.
-   * @param elapsedTime - Time since the previous move, in seconds.
-   * @returns A bit mask of {@link ControllerCollisionFlag} values, or 0 if inactive or no collision is reported.
+   * Writes the world-space velocity from the most recent {@link move} or {@link simpleMove}, in world units per second.
+   * @param out - Receives zero if the duration was zero or the controller is detached.
+   * @returns The output vector.
    */
-  move(disp: Vector3, minDist: number, elapsedTime: number): number {
-    const scene = this._registeredScene;
-    if (!scene) {
-      return 0;
+  getVelocity(out: Vector3): Vector3 {
+    return out.copyFrom(this._velocity);
+  }
+
+  /**
+   * Writes the controller's foot position, including its contact offset, in world space.
+   * @param out - Receives the foot position.
+   * @returns Whether an active controller supplied a position. On failure, the output is unchanged.
+   */
+  getFootPosition(out: Vector3): boolean {
+    return this._getSyncedNative()?.getFootPosition(out) ?? false;
+  }
+
+  /**
+   * Teleports the controller by moving its foot to a world-space position.
+   * @remarks The teleport does not sweep the controller through the scene.
+   * @param position - The requested foot position, including the contact offset.
+   * @returns Whether the active controller was moved.
+   */
+  setFootPosition(position: Vector3): boolean {
+    const controller = this._getSyncedNative();
+    if (!controller?.setFootPosition(position)) return false;
+    this._collisionFlags = ControllerCollisionFlag.None;
+    this._writeBackPosition(controller, 0);
+    return true;
+  }
+
+  /**
+   * Changes the controller's height while keeping its foot fixed.
+   * @remarks Check for overhead clearance before increasing the height.
+   * @param height - The new total height in local units, including both caps for a capsule.
+   * @returns Whether an active controller accepted the requested geometry.
+   */
+  resize(height: number): boolean {
+    const controller = this._getSyncedNative();
+    if (!controller) return false;
+    const scale = this._nativeScale;
+    const box = this._geometry === CharacterControllerGeometry.Box;
+    const worldHeight = height * scale.y;
+    const nativeHeight = box ? worldHeight * 0.5 : worldHeight - 2 * this._radius * Math.max(scale.x, scale.z);
+    if (!Collider._isValidPositiveFloat32(nativeHeight) || !controller.resize(nativeHeight, this._stepOffset)) {
+      return false;
     }
-    scene.physics._syncColliders();
-    const controller = <ICharacterController | null>this._native;
-    if (!this._inScene || !controller) {
-      return 0;
-    }
-    const flags = controller.move(disp, minDist, elapsedTime);
-    const positions = CharacterController._movePositions;
-    const position = positions.pop() ?? new Vector3();
+    if (box) this.size.y = height;
+    else this.height = height;
+    this._collisionFlags = ControllerCollisionFlag.None;
+    this._writeBackPosition(controller, 0);
+    return true;
+  }
+
+  /**
+   * Moves the controller and immediately updates the Entity's world position.
+   * @remarks Scene queries see the new pose immediately. The moving Entity's controller-hit callbacks run before
+   * this method returns. Trigger callbacks are dispatched by simulation steps.
+   * @param disp - Requested displacement in world space.
+   * @param minDist - Remaining distance at which the sweep stops, in world units. Defaults to 0.
+   * @param elapsedTime - Time since the previous move, in seconds. Defaults to the scene's fixed timestep.
+   * @param filter - Optional collision layers and colliders to filter for this move only.
+   * @returns The contact directions, or `ControllerCollisionFlag.None` if inactive or no collision is reported.
+   */
+  move(disp: Vector3, minDist = 0, elapsedTime?: number, filter?: ControllerMoveFilter): ControllerCollisionFlag {
+    // Resolve caller accessors before syncing or marshaling the displacement into the backend.
+    const { x, y, z } = disp;
+    const layerMask = filter?.layerMask;
+    const excluded = filter?.exclude;
+    const count = excluded?.length ?? 0;
+    const excludedIds = count > 0 ? (CharacterController._moveExclusionLists.pop() ?? []) : undefined;
     try {
-      controller.getWorldPosition(position);
-      const transform = this.entity.transform;
-      transform.worldPosition = position;
-      // Cache the published position so the next sync does not teleport over a rounding difference.
-      this._nativePosition.copyFrom(transform.worldPosition);
+      if (excludedIds) {
+        excludedIds.length = count;
+        for (let i = 0; i < count; i++) excludedIds[i] = excluded![i]._id;
+      }
+      const controller = this._getSyncedNative();
+      if (!controller) return ControllerCollisionFlag.None;
+      elapsedTime ??= this._registeredScene!.physics.fixedTimeStep;
+      return this._move(controller, x, y, z, minDist, elapsedTime, layerMask, excludedIds);
     } finally {
-      // A custom Transform setter can move another controller before consuming this position.
-      positions.push(position);
+      if (excludedIds) CharacterController._moveExclusionLists.push(excludedIds);
     }
-    return flags;
+  }
+
+  /**
+   * Moves the controller at the given speed while applying scene gravity along {@link upDirection}.
+   * @remarks Airborne vertical motion continues from the resolved velocity of the previous move.
+   * @param speed - World-space velocity in world units per second, projected perpendicular to {@link upDirection}.
+   * @param elapsedTime - Time since the previous move, in seconds. Defaults to the scene's fixed timestep.
+   * @returns Whether the controller contacted the ground during this move.
+   */
+  simpleMove(speed: Vector3, elapsedTime?: number): boolean {
+    const { x, y, z } = speed;
+    const controller = this._getSyncedNative();
+    if (!controller) return false;
+
+    const physics = this._registeredScene!.physics;
+    const duration = elapsedTime ?? physics.fixedTimeStep;
+    const up = this._upDirection;
+    const { x: upX, y: upY, z: upZ } = up;
+    const inputVerticalSpeed = x * upX + y * upY + z * upZ;
+    const previousVerticalSpeed = this.isGrounded ? 0 : Vector3.dot(this._velocity, up);
+    const verticalSpeedDelta = previousVerticalSpeed + Vector3.dot(physics.gravity, up) * duration - inputVerticalSpeed;
+    const flags = this._move(
+      controller,
+      (x + upX * verticalSpeedDelta) * duration,
+      (y + upY * verticalSpeedDelta) * duration,
+      (z + upZ * verticalSpeedDelta) * duration,
+      0,
+      duration
+    );
+    return (flags & ControllerCollisionFlag.Down) !== 0;
   }
 
   /**
@@ -291,7 +512,7 @@ export class CharacterController extends Collider {
       Math.abs(lossyScale.y),
       Math.abs(lossyScale.z)
     );
-    const force = !this._inScene;
+    const force = this._nativeState === ControllerNativeState.Detached;
     const syncGeometry = force || this._geometryDirty || this._scaleChanged(scale);
     const box = this._geometry === CharacterControllerGeometry.Box;
     const dimensions = CharacterController._tempExtents;
@@ -300,8 +521,8 @@ export class CharacterController extends Collider {
         const size = this._size;
         dimensions.set((size?.x ?? 1) * scale.x * 0.5, (size?.y ?? 1) * scale.y * 0.5, (size?.z ?? 1) * scale.z * 0.5);
       } else {
-        const radius = this._radius;
-        dimensions.set(radius * Math.max(scale.x, scale.z), (this._height - 2 * radius) * scale.y, 0);
+        const radius = this._radius * Math.max(scale.x, scale.z);
+        dimensions.set(radius, this._height * scale.y - 2 * radius, 0);
       }
       if (
         !Collider._isValidPositiveFloat32(dimensions.x) ||
@@ -314,9 +535,9 @@ export class CharacterController extends Collider {
     }
 
     const controller = <ICharacterController>(this._native ||= this._createNative());
-    const centerX = colliderCenter.x * scale.x;
-    const centerY = colliderCenter.y * scale.y;
-    const centerZ = colliderCenter.z * scale.z;
+    const centerX = colliderCenter.x * lossyScale.x;
+    const centerY = colliderCenter.y * lossyScale.y;
+    const centerZ = colliderCenter.z * lossyScale.z;
     const syncedCenter = this._syncedCenter;
     const nativePosition = this._nativePosition;
     if (
@@ -344,7 +565,7 @@ export class CharacterController extends Collider {
     }
     if (force) {
       scene.physics._nativePhysicsScene.addCharacterController(controller);
-      this._inScene = true;
+      this._nativeState = ControllerNativeState.Attached;
     }
   }
 
@@ -352,11 +573,13 @@ export class CharacterController extends Collider {
    * @internal
    */
   override _detach(physicsScene?: PhysicsScene): void {
-    if (this._inScene) {
+    if (this._nativeState !== ControllerNativeState.Detached) {
       (physicsScene ?? this._registeredScene!.physics)._nativePhysicsScene.removeCharacterController(
         <ICharacterController>this._native
       );
-      this._inScene = false;
+      this._nativeState = ControllerNativeState.Detached;
+      this._collisionFlags = ControllerCollisionFlag.None;
+      this._velocity.set(0, 0, 0);
     }
   }
 
@@ -365,10 +588,109 @@ export class CharacterController extends Collider {
     controller.setContactOffset(this.contactOffset);
     controller.setCollisionLayer(this._collisionLayerIndex);
     controller.setIsSceneQuery(this.isSceneQuery);
+    if (!this._detectCollisions) controller.setDetectCollisions(false);
+    controller.setClimbingMode(this._climbingMode);
     controller.setNonWalkableMode(this._nonWalkableMode);
     controller.setUpDirection(this._upDirection);
     controller.setSlopeLimit(this._slopeLimit);
+    if (this._invisibleWallHeight || this._maxJumpHeight) {
+      controller.setSlopeWalls(this._invisibleWallHeight, this._maxJumpHeight);
+    }
     return controller;
+  }
+
+  private _getSyncedNative(): ICharacterController | null {
+    this._registeredScene?.physics._syncColliders();
+    return this._nativeState === ControllerNativeState.Detached ? null : <ICharacterController>this._native;
+  }
+
+  private _move(
+    controller: ICharacterController,
+    x: number,
+    y: number,
+    z: number,
+    minDist: number,
+    elapsedTime: number,
+    layerMask?: number,
+    excludedIds?: number[]
+  ): ControllerCollisionFlag {
+    const scene = this._registeredScene!;
+    const hits = this._borrowMoveHitBatch();
+    const displacement = CharacterController._movePositions.pop() ?? new Vector3();
+    try {
+      if (this._nativeState === ControllerNativeState.Rebased) {
+        // The rebased hierarchy can recover precision lost in the old world frame.
+        controller.getWorldPosition(this._nativePosition);
+        this._nativeState = ControllerNativeState.Attached;
+      }
+      const flags = controller.move(displacement.set(x, y, z), minDist, elapsedTime, hits, layerMask, excludedIds);
+      this._collisionFlags = flags;
+      this._writeBackPosition(controller, elapsedTime, displacement);
+      if (hits?.count) this._dispatchMoveHits(hits, scene);
+      return flags;
+    } finally {
+      CharacterController._movePositions.push(displacement);
+      if (hits) CharacterController._moveHitBatches.push(hits);
+    }
+  }
+
+  private _borrowMoveHitBatch(): ControllerMoveHitBatch | undefined {
+    const { _elements: scripts, length } = this.entity._scripts;
+    for (let i = 0; i < length; i++) {
+      if (scripts[i]?.onControllerColliderHit) {
+        return CharacterController._moveHitBatches.pop() ?? new ControllerMoveHitBatch();
+      }
+    }
+  }
+
+  private _dispatchMoveHits(batch: ControllerMoveHitBatch, scene: Scene): void {
+    const scripts = this.entity._scripts;
+    const { _elements: listeners, length } = scripts;
+    const { event, hits, count } = batch;
+    event.controller = this;
+    scripts._startLoop();
+    try {
+      for (let i = 0; i < count && this._registeredScene === scene; i++) {
+        const hit = hits[i];
+        const collider = Engine._physicalObjectsMap[hit.colliderId];
+        if (!collider || collider.destroyed || collider.scene !== scene) continue;
+        event.collider = collider;
+        event.point = hit.point;
+        event.normal = hit.normal;
+        event.moveDirection = hit.moveDirection;
+        event.moveLength = hit.moveLength;
+        for (let j = 0; j < length; j++) {
+          listeners[j]?.onControllerColliderHit?.(event);
+          if (this._registeredScene !== scene || collider.destroyed || collider.scene !== scene) break;
+        }
+      }
+    } finally {
+      scripts._endLoop(CharacterController._scriptIndexSetter);
+      event.controller = event.collider = null!;
+    }
+  }
+
+  private _writeBackPosition(controller: ICharacterController, elapsedTime: number, scratch?: Vector3): void {
+    const positions = CharacterController._movePositions;
+    const position = scratch ?? positions.pop() ?? new Vector3();
+    try {
+      controller.getWorldPosition(position);
+      const velocity = this._velocity;
+      const previous = this._nativePosition;
+      const inverseDuration = elapsedTime > 0 ? 1 / elapsedTime : 0;
+      velocity.set(
+        (position.x - previous.x) * inverseDuration,
+        (position.y - previous.y) * inverseDuration,
+        (position.z - previous.z) * inverseDuration
+      );
+      const transform = this.entity.transform;
+      transform.worldPosition = position;
+      // Cache the published position so the next sync does not teleport over a rounding difference.
+      this._nativePosition.copyFrom(transform.worldPosition);
+    } finally {
+      // A custom Transform setter can move another controller before consuming this position.
+      if (!scratch) positions.push(position);
+    }
   }
 
   /**
@@ -445,4 +767,17 @@ export class CharacterController extends Collider {
     up.set(x, y, z);
     up._onValueChanged = listener;
   }
+}
+
+class ControllerMoveHitBatch implements IControllerMoveHits {
+  readonly hits: IControllerMoveHit[] = [];
+  count = 0;
+  readonly event = {
+    controller: null! as CharacterController,
+    collider: null! as Collider,
+    point: null! as Vector3,
+    normal: null! as Vector3,
+    moveDirection: null! as Vector3,
+    moveLength: 0
+  };
 }

@@ -4,6 +4,7 @@ import { Component } from "./Component";
 import { ignoreClone } from "./clone/CloneDecorators";
 import { PointerEventData } from "./input/pointer/PointerEventData";
 import { Collider } from "./physics";
+import type { ControllerColliderHit } from "./physics/CharacterController";
 import { Collision } from "./physics/Collision";
 import { Rigidbody } from "./physics/Rigidbody";
 
@@ -103,6 +104,12 @@ export class Script extends Component {
    * @param self - The collider on this script's entity
    */
   onTriggerStay(other: Collider, self: Collider): void {}
+
+  /**
+   * Called on the moving controller's Entity after a move hits a solid collider or another controller.
+   * @param hit - The sweep contact. Copy any values needed after the callback returns.
+   */
+  onControllerColliderHit?(hit: ControllerColliderHit): void;
 
   /**
    * Called when the collision enter.
