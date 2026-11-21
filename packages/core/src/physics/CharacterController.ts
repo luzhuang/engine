@@ -181,6 +181,20 @@ export class CharacterController extends Collider {
   }
 
   /**
+   * The rest offset is unsupported on character controllers and always reads as zero.
+   * @throws When set to a nonzero value.
+   */
+  override get restOffset(): number {
+    return 0;
+  }
+
+  override set restOffset(value: number) {
+    if (value !== 0) {
+      throw new RangeError("CharacterController does not support restOffset.");
+    }
+  }
+
+  /**
    * Whether other rigidbodies and character controllers can collide with this controller.
    * @defaultValue true
    * @remarks Disabling incoming collisions also disables trigger interactions. The controller's own
@@ -641,8 +655,8 @@ export class CharacterController extends Collider {
     }
   }
 
-  protected override _onContactOffsetChanged(value: number): void {
-    super._onContactOffsetChanged(value);
+  protected override _onContactOffsetsChanged(): void {
+    (<ICharacterController | null>this._native)?.setContactOffset(this.contactOffset);
     this._setGeometryDirty();
   }
 

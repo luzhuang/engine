@@ -137,6 +137,37 @@ describe("HingeJoint", function () {
     expect(joint.angle).toBeCloseTo(-Math.PI / 2, 2);
   });
 
+  it("reverses angular velocity at a bouncy hard limit", () => {
+    const physics = engine.sceneManager.activeScene.physics;
+    const [inelastic, elastic] = [0, 1].map((bounciness) => {
+      const entity = addBox(new Vector3(1, 1, 1), new Vector3(0, 3 * bounciness, 0));
+      const body = entity.getComponent(Rigidbody);
+      body.useGravity = false;
+      body.angularDamping = 0;
+
+      const hinge = entity.addComponent(HingeJoint);
+      const limits = new JointLimits();
+      limits.min = -0.5;
+      limits.max = 0.5;
+      hinge.limits = limits;
+      hinge.useLimits = true;
+      limits.bounciness = bounciness;
+      body.angularVelocity.set(10, 0, 0);
+      return body;
+    });
+
+    physics.autoSimulation = false;
+    try {
+      for (let i = 0; i < 12; i++) {
+        physics.step(1 / 120);
+      }
+      expect(inelastic.angularVelocity.x).toBeCloseTo(0);
+      expect(elastic.angularVelocity.x).toBeLessThan(-5);
+    } finally {
+      physics.autoSimulation = true;
+    }
+  });
+
   it("softLimit", function () {
     const boxEntity = addBox(new Vector3(1, 1, 1), new Vector3(0, 5, 0));
     const boxEntity2 = addBox(new Vector3(1, 1, 1), new Vector3(2, 5, 0));

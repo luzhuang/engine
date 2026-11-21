@@ -99,8 +99,8 @@ export class PhysXHingeJoint extends PhysXJoint implements IHingeJoint {
   /**
    * {@inheritDoc IHingeJoint.setHardLimit }
    */
-  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number): void {
-    this._pxJoint.setHardLimit(lowerLimit, upperLimit, contactDist);
+  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number, restitution: number): void {
+    this._pxJoint.setHardLimit(lowerLimit, upperLimit, contactDist, restitution);
   }
 
   /**

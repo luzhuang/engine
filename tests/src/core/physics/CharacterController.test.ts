@@ -690,6 +690,12 @@ describe("CharacterController", () => {
     expect(role.transform.position.y).toBeCloseTo(1.5, 5);
   });
 
+  it("rejects a nonzero rest offset", () => {
+    expect(() => (controller.restOffset = 0.01)).toThrow(RangeError);
+    controller.restOffset = 0;
+    expect(controller.restOffset).toBe(0);
+  });
+
   it.each([false, true])("rejects invalid contactOffset without changing its value (live=%s)", (live) => {
     controller.contactOffset = 0.3;
     if (live) move(new Vector3(0, 0, 0.1));

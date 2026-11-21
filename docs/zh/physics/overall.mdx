@@ -25,7 +25,7 @@ const engine = await WebGLEngine.create({
 });
 ```
 
-默认加载同一个 npm 包里的 PhysX JS 和 WASM。直接托管时，从 `dist/` 加载入口，并保留同级的 `libs/` 目录。若使用自行托管的构建，在构造函数的第二个参数传入对应的 `wasmModeUrl` 或 `wasmSIMDModeUrl`。
+默认加载同一个 npm 包里的 PhysX JS 和 WASM。直接托管时，从 `dist/` 加载入口，并保留同级的 `libs/` 目录。若自行托管，请使用与 Engine 发行版本配套的 PhysX 文件，并在构造函数的第二个参数传入脚本 URL `wasmModeUrl` 或 `wasmSIMDModeUrl`。
 
 使用 Vite 开发时，将 `@galacean/engine-physics-physx` 加入 `optimizeDeps.exclude`，使资源按包内路径解析。
 

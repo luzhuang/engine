@@ -25,8 +25,9 @@ export interface IHingeJoint extends IJoint {
    * @param lowerLimit - The lower angle in radians
    * @param upperLimit - The upper angle in radians
    * @param contactDist - How far inside the limit it becomes active, in radians
+   * @param restitution - The coefficient of restitution in [0, 1]
    */
-  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number): void;
+  setHardLimit(lowerLimit: number, upperLimit: number, contactDist: number, restitution: number): void;
 
   /**
    * Set an angular limit with spring response.

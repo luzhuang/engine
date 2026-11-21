@@ -25,7 +25,7 @@ const engine = await WebGLEngine.create({
 });
 ```
 
-The default loader uses the PhysX JavaScript and WebAssembly files shipped with the package. When serving the files directly, load the entry from `dist/` and keep `libs/` beside it. To use an independently hosted build, pass its script URL as `wasmModeUrl` or `wasmSIMDModeUrl` in the second constructor argument.
+The default loader uses the PhysX JavaScript and WebAssembly files shipped with the package. When serving the files directly, load the entry from `dist/` and keep `libs/` beside it. For a separately hosted build, use the PhysX files from the same Engine release and pass the script URL as `wasmModeUrl` or `wasmSIMDModeUrl` in the second constructor argument.
 
 In Vite development, add `@galacean/engine-physics-physx` to `optimizeDeps.exclude` so the assets resolve relative to the package.
 

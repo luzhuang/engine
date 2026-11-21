@@ -404,6 +404,88 @@ describe("Collider", () => {
     expect(recorder.onCollisionEnter).toHaveBeenCalledTimes(1);
   });
 
+  it("updates the resting separation when both offsets rise or fall", () => {
+    physics.gravity.set(0, -9.81, 0);
+    const plane = root.createChild("floor").addComponent(PlaneCollider);
+    const ball = root.createChild("ball");
+    ball.transform.setPosition(0, 3, 0);
+    ball.addComponent(SphereCollider).radius = 0.5;
+    const body = ball.addComponent(Rigidbody);
+    update();
+
+    for (const [contactOffset, restOffset] of [
+      [0.2, 0.15],
+      [0.02, -0.1]
+    ]) {
+      plane.restOffset = restOffset;
+      plane.contactOffset = contactOffset;
+      ball.transform.setPosition(0, 3, 0);
+      body.linearVelocity.set(0, 0, 0);
+      update(120);
+      expect(ball.transform.worldPosition.y).toBeCloseTo(0.5 + restOffset, 2);
+    }
+  });
+
+  it("excludes equal Float32 offsets from queries and simulation until corrected", () => {
+    const box = root.createChild("box").addComponent(BoxCollider);
+    const probe = root.createChild("probe");
+    probe.transform.setPosition(0.8, 0, 0);
+    probe.addComponent(BoxCollider);
+    probe.addComponent(Rigidbody).useGravity = false;
+    const recorder = probe.addComponent(CollisionRecorder);
+    const ray = new Ray(new Vector3(0, 0, -3), new Vector3(0, 0, 1));
+    const hit = new HitResult();
+    expect(physics.raycast(ray, hit) && hit.collider === box).toBe(true);
+
+    box.contactOffset = 0.2500000001;
+    box.restOffset = 0.25;
+    expect(physics.raycast(ray)).toBe(false);
+    update();
+    expect(recorder.onCollisionEnter).not.toHaveBeenCalled();
+    expect(box.restOffset).toBe(0.25);
+    expect(box.contactOffset).toBe(0.2500000001);
+
+    for (const value of [NaN, 1e40, -Infinity]) {
+      expect(() => (box.restOffset = value)).toThrow(RangeError);
+    }
+    box.restOffset = 0;
+    expect(physics.raycast(ray, hit) && hit.collider === box).toBe(true);
+    update();
+    expect(recorder.onCollisionEnter).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a collider detached when a pose read makes its offsets invalid", () => {
+    const ray = new Ray(new Vector3(0, 0, -3), new Vector3(0, 0, 1));
+    const cast = () => physics.raycast(ray, 5);
+    let invalidateOnRead = false;
+    let nestedHit: boolean | undefined;
+    let collider: BoxCollider;
+    class QueryingTransform extends Transform {
+      override get worldPosition(): Vector3 {
+        if (invalidateOnRead) {
+          invalidateOnRead = false;
+          collider.restOffset = collider.contactOffset;
+          nestedHit = cast();
+        }
+        return super.worldPosition;
+      }
+    }
+
+    const entity = root.createChild();
+    entity.addComponent(QueryingTransform);
+    collider = entity.addComponent(BoxCollider);
+    expect(cast()).toBe(true);
+
+    collider.center.z = 0.1;
+    invalidateOnRead = true;
+    expect(cast()).toBe(false);
+    expect(nestedHit).toBe(false);
+    expect(cast()).toBe(false);
+
+    collider.restOffset = 0;
+    expect(cast()).toBe(true);
+  });
+
   it("updates box size through assignment and vector mutation", () => {
     const box = root.addComponent(BoxCollider);
     const closest = new Vector3();

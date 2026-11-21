@@ -14,10 +14,11 @@ export interface IColliderShape {
   setLocalPose(position: Vector3, rotation: Quaternion): void;
 
   /**
-   * Sets the contact offset.
-   * @param offset - contact offset
+   * Apply the contact and rest offsets together.
+   * @param contactOffset - A positive contact distance in world units
+   * @param restOffset - A signed rest distance in world units, strictly below the contact offset in Float32
    */
-  setContactOffset(offset: number): void;
+  setContactOffsets(contactOffset: number, restOffset: number): void;
 
   /**
    * Set physics material on shape.

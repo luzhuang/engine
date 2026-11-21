@@ -82,6 +82,23 @@ describe("MeshCollider", () => {
     for (let i = 0; i < count; i++) physics._update(physics.fixedTimeStep);
   }
 
+  it("excludes a mesh whose authored offsets become invalid while reading geometry", () => {
+    const mesh = createCubeMesh(engine);
+    const readPositions = mesh.getPositions.bind(mesh);
+    const collider = addMesh(true, mesh);
+    const ray = rayAt(0);
+    vi.spyOn(mesh, "getPositions").mockImplementationOnce(() => {
+      collider.restOffset = collider.contactOffset;
+      return readPositions();
+    });
+
+    expect(physics.raycast(ray)).toBe(false);
+    expect(physics.raycast(ray)).toBe(false);
+
+    collider.restOffset = 0;
+    expect(physics.raycast(ray)).toBe(true);
+  });
+
   function rayAt(x: number, y = 5): Ray {
     return new Ray(new Vector3(x, y, 0), new Vector3(0, -1, 0));
   }

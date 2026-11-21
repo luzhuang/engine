@@ -11,6 +11,7 @@ export class JointLimits extends DataObject {
   private _max = 0;
   private _min = 0;
   private _contactDistance = -1;
+  private _bounciness = 0;
   private _stiffness = 0;
   private _damping = 0;
 
@@ -64,6 +65,26 @@ export class JointLimits extends DataObject {
     }
     if (this._contactDistance !== value) {
       this._contactDistance = value;
+      this._updateFlagManager.dispatch();
+    }
+  }
+
+  /**
+   * The coefficient of restitution at a hard angular limit.
+   * @defaultValue 0
+   * @throws When outside the inclusive range [0, 1].
+   * @remarks PhysX considers restitution only above an impact speed of 0.5 rad/s.
+   */
+  get bounciness(): number {
+    return this._bounciness;
+  }
+
+  set bounciness(value: number) {
+    if (typeof value !== "number" || !(value >= 0 && value <= 1)) {
+      throw new RangeError("JointLimits bounciness must be between 0 and 1.");
+    }
+    if (this._bounciness !== value) {
+      this._bounciness = value;
       this._updateFlagManager.dispatch();
     }
   }

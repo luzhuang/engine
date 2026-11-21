@@ -247,7 +247,7 @@ export class HingeJoint extends Joint {
         if (this._useSoftLimits) {
           nativeJoint.setSoftLimit(limits.min, limits.max, limits.stiffness, limits.damping);
         } else {
-          nativeJoint.setHardLimit(limits.min, limits.max, limits.contactDistance);
+          nativeJoint.setHardLimit(limits.min, limits.max, limits.contactDistance, limits.bounciness);
         }
       }
       this._wakeBodies();

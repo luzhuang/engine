@@ -106,6 +106,8 @@ export class Collider extends Component implements ICloneHook<Collider> {
   @ignoreClone
   private _shearWarned = false;
   @ignoreClone
+  private _offsetsDirty = true;
+  @ignoreClone
   private _nativeRotation: Quaternion;
   @ignoreClone
   private _nativeWorldPosition: Vector3;
@@ -117,6 +119,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
   protected _isTrigger = false;
   private _isSceneQuery = true;
   private _contactOffset = 0.02;
+  private _restOffset = 0;
   @ignoreClone
   private _material: PhysicsMaterial | null = null;
   @ignoreClone
@@ -187,21 +190,44 @@ export class Collider extends Component implements ICloneHook<Collider> {
   }
 
   /**
-   * The positive contact offset in world units.
+   * The positive contact offset in world units. Collider pairs can generate contacts within the sum of their offsets.
    * @defaultValue 0.02
-   * @throws When the value is not a positive finite Float32.
+   * @remarks Character controllers apply this value immediately as the movement skin.
+   * @throws When the value is not a positive, normal, finite Float32.
    */
   get contactOffset(): number {
     return this._contactOffset;
   }
 
   set contactOffset(value: number) {
-    if (!Collider._isValidPositiveFloat32(value)) {
-      throw new RangeError("Collider contactOffset must be positive and finite.");
+    if (typeof value !== "number" || !Collider._isValidPositiveFloat32(value)) {
+      throw new RangeError("Collider contactOffset must be a positive, normal, finite Float32.");
     }
     if (this._contactOffset !== value) {
       this._contactOffset = value;
-      this._onContactOffsetChanged(value);
+      this._onContactOffsetsChanged();
+    }
+  }
+
+  /**
+   * The signed rest offset in world units. Collider pairs settle at the sum of their rest offsets.
+   * @defaultValue 0
+   * @remarks The offsets are applied together before simulation or a query. The Collider is excluded from both
+   * while its rest offset is greater than or equal to its contact offset after Float32 conversion.
+   * Sleeping rigidbodies respond to the new offsets when they wake.
+   * @throws When the value does not convert to a finite Float32.
+   */
+  get restOffset(): number {
+    return this._restOffset;
+  }
+
+  set restOffset(value: number) {
+    if (typeof value !== "number" || !Number.isFinite(Math.fround(value))) {
+      throw new RangeError("Collider restOffset must be finite in Float32.");
+    }
+    if (this._restOffset !== value) {
+      this._restOffset = value;
+      this._onContactOffsetsChanged();
     }
   }
 
@@ -446,6 +472,8 @@ export class Collider extends Component implements ICloneHook<Collider> {
    */
   _sync(): void {
     const scene = this._registeredScene!;
+    // Transform and geometry getters can query the current native shape.
+    if (this._offsetsDirty && !this._syncOffsets(<IColliderShape | null>this._native)) return;
     const transform = this.entity.transform;
     // Reading the world matrix re-arms transform change notifications that are only sent from a clean state
     const worldMatrix = transform.worldMatrix;
@@ -483,10 +511,10 @@ export class Collider extends Component implements ICloneHook<Collider> {
         this._detach();
         return;
       }
-
       const attachedActor = this._nativeActor;
       const actor = body ? (attachedActor ?? body._getNativeActor()) : this._syncStaticActor(transform, scene);
       if (!actor || !this._syncShapePose(shape, body, scratch, shape !== previousShape, scene)) return;
+      if (this._offsetsDirty && !this._syncOffsets(shape)) return;
       if (!this._nativeActor) {
         if (!actor.addShape(shape)) {
           console.error(`${this.constructor.name}: failed to attach to the native actor.`);
@@ -617,7 +645,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
    * Apply the fields shared by every Collider to a newly created native shape.
    */
   protected _initializeNativeShape<T extends IColliderShape>(shape: T): T {
-    shape.setContactOffset(this._contactOffset);
+    this._syncOffsets(shape);
     if (this._isTrigger) shape.setIsTrigger(true);
     if (!this._isSceneQuery) shape.setIsSceneQuery(false);
     shape.setCollisionLayer(this._collisionLayerIndex);
@@ -638,6 +666,7 @@ export class Collider extends Component implements ICloneHook<Collider> {
       if (!shape) {
         this._detach();
       } else if (!actor.replaceShape(previous, shape)) {
+        this._offsetsDirty = true;
         shape.destroy();
         return false;
       }
@@ -647,8 +676,9 @@ export class Collider extends Component implements ICloneHook<Collider> {
     return true;
   }
 
-  protected _onContactOffsetChanged(value: number): void {
-    this._native?.setContactOffset(value);
+  protected _onContactOffsetsChanged(): void {
+    this._offsetsDirty = true;
+    this._markDirty();
   }
 
   protected _setIsTrigger(value: boolean): void {
@@ -683,6 +713,18 @@ export class Collider extends Component implements ICloneHook<Collider> {
 
   private _getMaterialOverride(): PhysicsMaterial | null | undefined {
     return this._material ?? (this._registeredScene ?? this.scene)?.physics.defaultMaterial;
+  }
+
+  private _syncOffsets(shape: IColliderShape | null): boolean {
+    if (Math.fround(this._restOffset) >= Math.fround(this._contactOffset)) {
+      this._detach();
+      return false;
+    }
+    if (shape) {
+      shape.setContactOffsets(this._contactOffset, this._restOffset);
+      this._offsetsDirty = false;
+    }
+    return true;
   }
 
   @ignoreClone
